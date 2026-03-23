@@ -40,7 +40,7 @@ var nodePressureCmd = &cobra.Command{
 
 var nodeTaintsCmd = &cobra.Command{
 	Use:   "taints",
-	Short: "List all node taints and flag pods missing tolerations",
+	Short: "List all node taints",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 		defer cancel()
@@ -132,4 +132,5 @@ func init() {
 	nodeCmd.AddCommand(nodeTopCmd)
 	nodeCmd.AddCommand(nodeCordonCmd)
 	nodeCordonCmd.Flags().BoolVar(&drainNode, "drain", false, "also drain after cordoning")
+	rootCmd.AddCommand(nodeCmd)
 }

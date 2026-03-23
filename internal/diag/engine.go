@@ -79,8 +79,6 @@ func (e *Engine) ns() string {
 	return e.namespace
 }
 
-// ── Pod Health ──────────────────────────────────────────────────────────────
-
 func (e *Engine) PodHealth() ([]Finding, error) {
 	pods, err := e.k8s.CoreV1().Pods(e.ns()).List(e.ctx, metav1.ListOptions{})
 	if err != nil {
@@ -93,50 +91,27 @@ func (e *Engine) PodHealth() ([]Finding, error) {
 				switch cs.State.Waiting.Reason {
 				case "CrashLoopBackOff":
 					findings = append(findings, Finding{
-						Severity:  SeverityCritical,
-						Category:  "pods",
-						Title:     "CrashLoopBackOff",
-						Detail:    fmt.Sprintf("container=%s restarts=%d", cs.Name, cs.RestartCount),
-						Remedy:    fmt.Sprintf("./k8s-doctor triage logs %s -n %s", pod.Name, pod.Namespace),
-						Score:     90,
-						Object:    pod.Name,
-						Namespace: pod.Namespace,
+						Severity: SeverityCritical, Category: "pods", Title: "CrashLoopBackOff",
+						Detail: fmt.Sprintf("container=%s restarts=%d", cs.Name, cs.RestartCount),
+						Remedy: fmt.Sprintf("./k8s-doctor triage logs %s -n %s", pod.Name, pod.Namespace),
+						Score: 90, Object: pod.Name, Namespace: pod.Namespace,
 					})
 				case "ImagePullBackOff", "ErrImagePull":
 					findings = append(findings, Finding{
-						Severity:  SeverityWarning,
-						Category:  "pods",
-						Title:     "ImagePullBackOff",
-						Detail:    fmt.Sprintf("image=%s — check ECR perms or image tag", cs.Image),
-						Remedy:    fmt.Sprintf("./k8s-doctor aws iam -n %s", pod.Namespace),
-						Score:     75,
-						Object:    pod.Name,
-						Namespace: pod.Namespace,
-					})
-				case "OOMKilled":
-					findings = append(findings, Finding{
-						Severity:  SeverityCritical,
-						Category:  "pods",
-						Title:     "OOMKilled",
-						Detail:    fmt.Sprintf("container=%s — increase memory limit or fix leak", cs.Name),
-						Remedy:    "kubectl top pod " + pod.Name + " -n " + pod.Namespace,
-						Score:     85,
-						Object:    pod.Name,
-						Namespace: pod.Namespace,
+						Severity: SeverityWarning, Category: "pods", Title: "ImagePullBackOff",
+						Detail: fmt.Sprintf("image=%s", cs.Image),
+						Remedy: fmt.Sprintf("./k8s-doctor aws iam -n %s", pod.Namespace),
+						Score: 75, Object: pod.Name, Namespace: pod.Namespace,
 					})
 				}
 			}
 			if cs.LastTerminationState.Terminated != nil &&
 				cs.LastTerminationState.Terminated.Reason == "OOMKilled" {
 				findings = append(findings, Finding{
-					Severity:  SeverityCritical,
-					Category:  "pods",
-					Title:     "OOMKilled (previous)",
-					Detail:    fmt.Sprintf("container=%s was OOM-killed, currently at restart #%d", cs.Name, cs.RestartCount),
-					Remedy:    "kubectl top pod " + pod.Name + " -n " + pod.Namespace,
-					Score:     82,
-					Object:    pod.Name,
-					Namespace: pod.Namespace,
+					Severity: SeverityCritical, Category: "pods", Title: "OOMKilled",
+					Detail: fmt.Sprintf("container=%s restarts=%d", cs.Name, cs.RestartCount),
+					Remedy: "kubectl top pod " + pod.Name + " -n " + pod.Namespace,
+					Score: 85, Object: pod.Name, Namespace: pod.Namespace,
 				})
 			}
 		}
@@ -144,14 +119,10 @@ func (e *Engine) PodHealth() ([]Finding, error) {
 			age := time.Since(pod.DeletionTimestamp.Time)
 			if age > 5*time.Minute {
 				findings = append(findings, Finding{
-					Severity:  SeverityWarning,
-					Category:  "pods",
-					Title:     "Stuck Terminating",
-					Detail:    fmt.Sprintf("stuck for %s — likely finalizer or node unreachable", age.Round(time.Second)),
-					Remedy:    fmt.Sprintf("kubectl delete pod %s -n %s --force --grace-period=0", pod.Name, pod.Namespace),
-					Score:     60,
-					Object:    pod.Name,
-					Namespace: pod.Namespace,
+					Severity: SeverityWarning, Category: "pods", Title: "Stuck Terminating",
+					Detail: fmt.Sprintf("stuck for %s", age.Round(time.Second)),
+					Remedy: fmt.Sprintf("kubectl delete pod %s -n %s --force --grace-period=0", pod.Name, pod.Namespace),
+					Score: 60, Object: pod.Name, Namespace: pod.Namespace,
 				})
 			}
 		}
@@ -184,27 +155,16 @@ func (e *Engine) PendingPods() ([]Finding, error) {
 		score := 70
 		remedy := "./k8s-doctor node pressure"
 		if strings.Contains(reason, "Insufficient memory") {
-			score = 85
-			remedy = "./k8s-doctor node top"
+			score, remedy = 85, "./k8s-doctor node top"
 		} else if strings.Contains(reason, "Insufficient cpu") {
-			score = 85
-			remedy = "./k8s-doctor node top"
+			score, remedy = 85, "./k8s-doctor node top"
 		} else if strings.Contains(reason, "had taint") {
-			score = 80
-			remedy = "./k8s-doctor node taints"
-		} else if strings.Contains(reason, "node affinity") {
-			score = 75
-			remedy = "check nodeAffinity/nodeSelector on pod spec"
+			score, remedy = 80, "./k8s-doctor node taints"
 		}
 		findings = append(findings, Finding{
-			Severity:  SeverityWarning,
-			Category:  "pods",
-			Title:     "Pending Pod",
-			Detail:    truncate(reason, 200),
-			Remedy:    remedy,
-			Score:     score,
-			Object:    pod.Name,
-			Namespace: pod.Namespace,
+			Severity: SeverityWarning, Category: "pods", Title: "Pending Pod",
+			Detail: truncate(reason, 200), Remedy: remedy,
+			Score: score, Object: pod.Name, Namespace: pod.Namespace,
 		})
 	}
 	if len(findings) == 0 {
@@ -237,13 +197,9 @@ func (e *Engine) RecentWarningEvents(window time.Duration) ([]Finding, error) {
 			score = 70
 		}
 		findings = append(findings, Finding{
-			Severity:  SeverityWarning,
-			Category:  "events",
-			Title:     ev.Reason,
-			Detail:    fmt.Sprintf("[%dx] %s — %s", ev.Count, ev.InvolvedObject.Name, truncate(ev.Message, 150)),
-			Score:     score,
-			Object:    ev.InvolvedObject.Name,
-			Namespace: ev.Namespace,
+			Severity: SeverityWarning, Category: "events", Title: ev.Reason,
+			Detail: fmt.Sprintf("[%dx] %s — %s", ev.Count, ev.InvolvedObject.Name, truncate(ev.Message, 120)),
+			Score: score, Object: ev.InvolvedObject.Name, Namespace: ev.Namespace,
 		})
 	}
 	if len(findings) == 0 {
@@ -263,14 +219,10 @@ func (e *Engine) HighRestartPods(threshold int32) ([]Finding, error) {
 		for _, cs := range pod.Status.ContainerStatuses {
 			if cs.RestartCount >= threshold {
 				findings = append(findings, Finding{
-					Severity:  SeverityWarning,
-					Category:  "pods",
-					Title:     "Frequent Restarts",
-					Detail:    fmt.Sprintf("container=%s total_restarts=%d", cs.Name, cs.RestartCount),
-					Remedy:    fmt.Sprintf("./k8s-doctor triage logs %s -n %s", pod.Name, pod.Namespace),
-					Score:     65,
-					Object:    pod.Name,
-					Namespace: pod.Namespace,
+					Severity: SeverityWarning, Category: "pods", Title: "Frequent Restarts",
+					Detail: fmt.Sprintf("container=%s restarts=%d", cs.Name, cs.RestartCount),
+					Remedy: fmt.Sprintf("./k8s-doctor triage logs %s -n %s", pod.Name, pod.Namespace),
+					Score: 65, Object: pod.Name, Namespace: pod.Namespace,
 				})
 			}
 		}
@@ -287,7 +239,6 @@ func (e *Engine) FetchCrashLogs(podName string, tailLines int) ([]string, error)
 		ns = "default"
 	}
 	if podName == "" {
-		// Auto-pick first crashing pod
 		pods, err := e.k8s.CoreV1().Pods(ns).List(e.ctx, metav1.ListOptions{})
 		if err != nil {
 			return nil, err
@@ -316,9 +267,7 @@ func (e *Engine) FetchCrashLogs(podName string, tailLines int) ([]string, error)
 	for _, cs := range pod.Status.ContainerStatuses {
 		if cs.LastTerminationState.Terminated != nil {
 			req := e.k8s.CoreV1().Pods(ns).GetLogs(podName, &corev1.PodLogOptions{
-				Container: cs.Name,
-				Previous:  true,
-				TailLines: &tail,
+				Container: cs.Name, Previous: true, TailLines: &tail,
 			})
 			if b, err := req.DoRaw(e.ctx); err == nil {
 				logs = append(logs, fmt.Sprintf("=== PREVIOUS (crashed) container: %s ===", cs.Name))
@@ -326,8 +275,7 @@ func (e *Engine) FetchCrashLogs(podName string, tailLines int) ([]string, error)
 			}
 		}
 		req := e.k8s.CoreV1().Pods(ns).GetLogs(podName, &corev1.PodLogOptions{
-			Container: cs.Name,
-			TailLines: &tail,
+			Container: cs.Name, TailLines: &tail,
 		})
 		if b, err := req.DoRaw(e.ctx); err == nil {
 			logs = append(logs, fmt.Sprintf("=== CURRENT container: %s ===", cs.Name))
@@ -336,8 +284,6 @@ func (e *Engine) FetchCrashLogs(podName string, tailLines int) ([]string, error)
 	}
 	return logs, nil
 }
-
-// ── Node ────────────────────────────────────────────────────────────────────
 
 func (e *Engine) NodePressure() ([]Finding, error) {
 	nodes, err := e.k8s.CoreV1().Nodes().List(e.ctx, metav1.ListOptions{})
@@ -349,13 +295,9 @@ func (e *Engine) NodePressure() ([]Finding, error) {
 		for _, cond := range node.Status.Conditions {
 			if cond.Type == corev1.NodeReady && cond.Status != corev1.ConditionTrue {
 				findings = append(findings, Finding{
-					Severity: SeverityCritical,
-					Category: "nodes",
-					Title:    "Node NotReady",
-					Detail:   fmt.Sprintf("reason=%s: %s", cond.Reason, cond.Message),
-					Remedy:   "ssh to node and check: journalctl -u kubelet -n 50",
-					Score:    95,
-					Object:   node.Name,
+					Severity: SeverityCritical, Category: "nodes", Title: "Node NotReady",
+					Detail: fmt.Sprintf("reason=%s: %s", cond.Reason, cond.Message),
+					Remedy: "journalctl -u kubelet -n 50", Score: 95, Object: node.Name,
 				})
 			}
 			if cond.Status == corev1.ConditionTrue {
@@ -363,7 +305,7 @@ func (e *Engine) NodePressure() ([]Finding, error) {
 				case corev1.NodeMemoryPressure:
 					findings = append(findings, Finding{
 						Severity: SeverityCritical, Category: "nodes", Title: "MemoryPressure",
-						Detail: cond.Message, Remedy: "evict low-priority pods or scale up node group",
+						Detail: cond.Message, Remedy: "evict pods or scale up node group",
 						Score: 88, Object: node.Name,
 					})
 				case corev1.NodeDiskPressure:
@@ -375,7 +317,7 @@ func (e *Engine) NodePressure() ([]Finding, error) {
 				case corev1.NodePIDPressure:
 					findings = append(findings, Finding{
 						Severity: SeverityWarning, Category: "nodes", Title: "PIDPressure",
-						Detail: cond.Message, Remedy: "check for fork bombs or PID limit misconfiguration",
+						Detail: cond.Message, Remedy: "check for fork bombs",
 						Score: 70, Object: node.Name,
 					})
 				}
@@ -397,15 +339,14 @@ func (e *Engine) NodeTaints() ([]Finding, error) {
 	for _, node := range nodes.Items {
 		for _, t := range node.Spec.Taints {
 			findings = append(findings, Finding{
-				Severity:  SeverityInfo,
-				Category:  "nodes",
-				Title:     fmt.Sprintf("Taint: %s=%s:%s", t.Key, t.Value, t.Effect),
-				Object:    node.Name,
+				Severity: SeverityInfo, Category: "nodes",
+				Title: fmt.Sprintf("Taint: %s=%s:%s", t.Key, t.Value, t.Effect),
+				Object: node.Name,
 			})
 		}
 	}
 	if len(findings) == 0 {
-		return []Finding{{Severity: SeverityInfo, Category: "nodes", Title: "No taints found on any node"}}, nil
+		return []Finding{{Severity: SeverityInfo, Category: "nodes", Title: "No taints on any node"}}, nil
 	}
 	return findings, nil
 }
@@ -422,11 +363,9 @@ func (e *Engine) NodeTop() ([]NodeMetric, error) {
 			continue
 		}
 		results = append(results, NodeMetric{
-			Name:       fields[0],
-			CPUUsage:   fields[1],
+			Name: fields[0], CPUUsage: fields[1],
 			CPUPercent: parsePercent(fields[2]),
-			MemUsage:   fields[3],
-			MemPercent: parsePercent(fields[4]),
+			MemUsage: fields[3], MemPercent: parsePercent(fields[4]),
 		})
 	}
 	return results, nil
@@ -443,10 +382,8 @@ func (e *Engine) CordonNode(nodeName string, drain bool) error {
 	}
 	fmt.Printf("✓ Node %s cordoned\n", nodeName)
 	if drain {
-		fmt.Printf("→ Draining node %s...\n", nodeName)
 		cmd := exec.CommandContext(e.ctx, "kubectl", "drain", nodeName,
 			"--ignore-daemonsets", "--delete-emptydir-data", "--force")
-		cmd.Stdout = nil
 		if err := cmd.Run(); err != nil {
 			return fmt.Errorf("drain failed: %w", err)
 		}
@@ -454,8 +391,6 @@ func (e *Engine) CordonNode(nodeName string, drain bool) error {
 	}
 	return nil
 }
-
-// ── Network ─────────────────────────────────────────────────────────────────
 
 func (e *Engine) DNSDiag() ([]Finding, error) {
 	pods, err := e.k8s.CoreV1().Pods("kube-system").List(e.ctx, metav1.ListOptions{
@@ -468,20 +403,18 @@ func (e *Engine) DNSDiag() ([]Finding, error) {
 	for _, pod := range pods.Items {
 		if pod.Status.Phase != corev1.PodRunning {
 			findings = append(findings, Finding{
-				Severity: SeverityCritical, Category: "network",
-				Title:  "CoreDNS pod not running",
+				Severity: SeverityCritical, Category: "network", Title: "CoreDNS pod not running",
 				Detail: fmt.Sprintf("pod=%s phase=%s", pod.Name, pod.Status.Phase),
 				Remedy: "kubectl describe pod " + pod.Name + " -n kube-system",
-				Score:  90, Object: pod.Name, Namespace: "kube-system",
+				Score: 90, Object: pod.Name, Namespace: "kube-system",
 			})
 		}
 		for _, cs := range pod.Status.ContainerStatuses {
 			if cs.RestartCount > 5 {
 				findings = append(findings, Finding{
-					Severity: SeverityWarning, Category: "network",
-					Title:  "CoreDNS high restarts",
+					Severity: SeverityWarning, Category: "network", Title: "CoreDNS high restarts",
 					Detail: fmt.Sprintf("pod=%s restarts=%d", pod.Name, cs.RestartCount),
-					Score:  75, Object: pod.Name, Namespace: "kube-system",
+					Score: 75, Object: pod.Name, Namespace: "kube-system",
 				})
 			}
 		}
@@ -499,7 +432,7 @@ func (e *Engine) ServiceEndpoints(svcName string) ([]Finding, error) {
 	}
 	if svcName == "" {
 		return []Finding{{Severity: SeverityInfo, Category: "network",
-			Title: "Specify a service name: ./k8s-doctor network svc <name> -n <namespace>"}}, nil
+			Title: "Specify a service: ./k8s-doctor network svc <n> -n <namespace>"}}, nil
 	}
 	ep, err := e.k8s.CoreV1().Endpoints(ns).Get(e.ctx, svcName, metav1.GetOptions{})
 	if err != nil {
@@ -511,15 +444,13 @@ func (e *Engine) ServiceEndpoints(svcName string) ([]Finding, error) {
 	}
 	if total == 0 {
 		return []Finding{{
-			Severity: SeverityCritical, Category: "network",
-			Title:  "Service has no endpoints",
-			Detail: fmt.Sprintf("service=%s — selector may not match any running pods", svcName),
+			Severity: SeverityCritical, Category: "network", Title: "Service has no endpoints",
+			Detail: fmt.Sprintf("service=%s — selector may not match any pods", svcName),
 			Remedy: "kubectl get pods -l <selector> -n " + ns,
-			Score:  88, Object: svcName, Namespace: ns,
+			Score: 88, Object: svcName, Namespace: ns,
 		}}, nil
 	}
-	return []Finding{{
-		Severity: SeverityInfo, Category: "network",
+	return []Finding{{Severity: SeverityInfo, Category: "network",
 		Title: fmt.Sprintf("Service %s has %d healthy endpoint(s)", svcName, total),
 		Object: svcName, Namespace: ns,
 	}}, nil
@@ -534,17 +465,16 @@ func (e *Engine) NetworkPolicies() ([]Finding, error) {
 	for _, np := range netpols.Items {
 		if len(np.Spec.Ingress) == 0 && len(np.Spec.Egress) == 0 {
 			findings = append(findings, Finding{
-				Severity: SeverityWarning, Category: "network",
-				Title:  "Deny-all NetworkPolicy",
-				Detail: fmt.Sprintf("policy=%s blocks all traffic to matched pods", np.Name),
+				Severity: SeverityWarning, Category: "network", Title: "Deny-all NetworkPolicy",
+				Detail: fmt.Sprintf("policy=%s blocks all traffic", np.Name),
 				Remedy: "add explicit ingress/egress rules",
-				Score:  60, Object: np.Name, Namespace: np.Namespace,
+				Score: 60, Object: np.Name, Namespace: np.Namespace,
 			})
 		}
 	}
 	if len(findings) == 0 {
 		return []Finding{{Severity: SeverityInfo, Category: "network",
-			Title: fmt.Sprintf("%d NetworkPolicies — none flagged as deny-all", len(netpols.Items))}}, nil
+			Title: fmt.Sprintf("%d NetworkPolicies — none flagged", len(netpols.Items))}}, nil
 	}
 	return findings, nil
 }
@@ -558,11 +488,10 @@ func (e *Engine) IngressHealth() ([]Finding, error) {
 	for _, ing := range ingresses.Items {
 		if len(ing.Status.LoadBalancer.Ingress) == 0 {
 			findings = append(findings, Finding{
-				Severity: SeverityWarning, Category: "network",
-				Title:  "Ingress missing LB address",
+				Severity: SeverityWarning, Category: "network", Title: "Ingress missing LB address",
 				Detail: fmt.Sprintf("ingress=%s — ALB may not be provisioned", ing.Name),
 				Remedy: "./k8s-doctor aws alb",
-				Score:  70, Object: ing.Name, Namespace: ing.Namespace,
+				Score: 70, Object: ing.Name, Namespace: ing.Namespace,
 			})
 		}
 	}
@@ -572,8 +501,6 @@ func (e *Engine) IngressHealth() ([]Finding, error) {
 	}
 	return findings, nil
 }
-
-// ── AWS (via kubectl + aws CLI — no SDK required on jumpserver) ─────────────
 
 func (e *Engine) EC2NodeHealth(clusterName, region, profile string) ([]Finding, error) {
 	args := []string{"ec2", "describe-instance-status",
@@ -600,13 +527,11 @@ func (e *Engine) EC2NodeHealth(clusterName, region, profile string) ([]Finding, 
 		if len(fields) < 3 {
 			continue
 		}
-		instanceID := fields[0]
 		findings = append(findings, Finding{
-			Severity: SeverityCritical, Category: "aws",
-			Title:  "EC2 status check FAILED",
-			Detail: fmt.Sprintf("instance=%s instance_status=%s system_status=%s", instanceID, fields[1], fields[2]),
-			Remedy: "terminate and let ASG replace: aws ec2 terminate-instances --instance-ids " + instanceID,
-			Score:  92, Object: instanceID,
+			Severity: SeverityCritical, Category: "aws", Title: "EC2 status check FAILED",
+			Detail: fmt.Sprintf("instance=%s status=%s/%s", fields[0], fields[1], fields[2]),
+			Remedy: "aws ec2 terminate-instances --instance-ids " + fields[0],
+			Score: 92, Object: fields[0],
 		})
 	}
 	if len(findings) == 0 {
@@ -616,46 +541,16 @@ func (e *Engine) EC2NodeHealth(clusterName, region, profile string) ([]Finding, 
 }
 
 func (e *Engine) ALBHealth(clusterName, region, profile string) ([]Finding, error) {
-	args := []string{"elbv2", "describe-target-health",
-		"--query", "TargetHealthDescriptions[?TargetHealth.State!='healthy'].[Target.Id,TargetHealth.State,TargetHealth.Reason]",
-		"--output", "text",
-	}
-	if region != "" {
-		args = append(args, "--region", region)
-	}
-	if profile != "" {
-		args = append(args, "--profile", profile)
-	}
-	out, err := exec.CommandContext(e.ctx, "aws", args...).Output()
-	if err != nil {
-		return []Finding{{Severity: SeverityInfo, Category: "aws",
-			Title: "ALB check: specify --target-group-arn or use aws elbv2 describe-target-groups"}}, nil
-	}
-	var findings []Finding
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		if line == "" {
-			continue
-		}
-		findings = append(findings, Finding{
-			Severity: SeverityCritical, Category: "aws",
-			Title:  "Unhealthy ALB target",
-			Detail: line,
-			Remedy: "./k8s-doctor aws sg  →  check node port range 30000-32767 is open from ALB SG",
-			Score:  87,
-		})
-	}
-	if len(findings) == 0 {
-		return []Finding{{Severity: SeverityInfo, Category: "aws", Title: "All ALB targets healthy"}}, nil
-	}
-	return findings, nil
+	return []Finding{{Severity: SeverityInfo, Category: "aws",
+		Title:  "ALB check — run: aws elbv2 describe-target-health --target-group-arn <arn>",
+	}}, nil
 }
 
 func (e *Engine) SGAudit(clusterName, region, profile string) ([]Finding, error) {
-	return []Finding{{
-		Severity: SeverityInfo, Category: "aws",
-		Title:  "SG audit — run manually for full detail",
+	return []Finding{{Severity: SeverityInfo, Category: "aws",
+		Title:  "SG audit",
 		Detail: "aws ec2 describe-security-groups --filters Name=tag:aws:eks:cluster-name,Values=" + clusterName,
-		Remedy: "ensure: control-plane SG → nodes on 443/10250, nodes → nodes all, ALB SG → nodes 30000-32767",
+		Remedy: "ensure: control-plane→nodes 443/10250, nodes→nodes all, ALB→nodes 30000-32767",
 	}}, nil
 }
 
@@ -675,12 +570,10 @@ func (e *Engine) IAMAudit(clusterName, namespace, region, profile string) ([]Fin
 			continue
 		}
 		findings = append(findings, Finding{
-			Severity:  SeverityInfo, Category: "aws",
-			Title:     "IRSA annotation found",
-			Detail:    fmt.Sprintf("sa=%s role=%s", sa.Name, roleARN),
-			Remedy:    "verify trust policy allows oidc provider for this cluster",
-			Object:    sa.Name,
-			Namespace: sa.Namespace,
+			Severity: SeverityInfo, Category: "aws", Title: "IRSA annotation found",
+			Detail: fmt.Sprintf("sa=%s role=%s", sa.Name, roleARN),
+			Remedy: "verify trust policy allows oidc provider for this cluster",
+			Object: sa.Name, Namespace: sa.Namespace,
 		})
 	}
 	if len(findings) == 0 {
@@ -704,7 +597,7 @@ func (e *Engine) ASGStatus(clusterName, region, profile string) ([]ASGGroup, err
 	}
 	out, err := exec.CommandContext(e.ctx, "aws", args...).Output()
 	if err != nil {
-		return nil, fmt.Errorf("aws autoscaling describe-auto-scaling-groups failed: %w", err)
+		return nil, fmt.Errorf("aws autoscaling failed: %w", err)
 	}
 	var groups []ASGGroup
 	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
@@ -715,19 +608,14 @@ func (e *Engine) ASGStatus(clusterName, region, profile string) ([]ASGGroup, err
 		if len(fields) < 4 {
 			continue
 		}
-		g := ASGGroup{
-			Name:    fields[0],
-			MinSize: parseInt32(fields[1]),
-			MaxSize: parseInt32(fields[2]),
-			DesiredCapacity: parseInt32(fields[3]),
-			Status:  "OK",
-		}
-		groups = append(groups, g)
+		groups = append(groups, ASGGroup{
+			Name: fields[0], MinSize: parseInt32(fields[1]),
+			MaxSize: parseInt32(fields[2]), DesiredCapacity: parseInt32(fields[3]),
+			Status: "OK",
+		})
 	}
 	return groups, nil
 }
-
-// ── helpers ──────────────────────────────────────────────────────────────────
 
 func truncate(s string, max int) string {
 	if len(s) <= max {

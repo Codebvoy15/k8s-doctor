@@ -102,7 +102,6 @@ func (p *Printer) RootCauseSummary(findings []diag.Finding) {
 		return
 	}
 	sort.Slice(real, func(i, j int) bool { return real[i].Score > real[j].Score })
-
 	switch p.format {
 	case "markdown":
 		fmt.Println("\n---\n\n## Root cause assessment\n")
@@ -129,8 +128,15 @@ func (p *Printer) RootCauseSummary(findings []diag.Finding) {
 				break
 			}
 			icon, _ := severityStyle(f.Severity)
-			bar := scoreBar(f.Score)
-			fmt.Printf("  %s [%s] %s\n", icon, bar, color.New(color.Bold).Sprint(f.Title))
+			filled := f.Score / 10
+			bar := strings.Repeat("█", filled) + strings.Repeat("░", 10-filled)
+			barStr := color.GreenString(bar+" %d%%", f.Score)
+			if f.Score >= 80 {
+				barStr = color.RedString(bar+" %d%%", f.Score)
+			} else if f.Score >= 60 {
+				barStr = color.YellowString(bar+" %d%%", f.Score)
+			}
+			fmt.Printf("  %s [%s] %s\n", icon, barStr, color.New(color.Bold).Sprint(f.Title))
 			if f.Object != "" {
 				fmt.Printf("      object: %s/%s\n", f.Namespace, f.Object)
 			}
@@ -151,15 +157,4 @@ func severityStyle(s diag.Severity) (string, func(string, ...interface{}) string
 	default:
 		return "○", color.New(color.FgGreen).Sprintf
 	}
-}
-
-func scoreBar(score int) string {
-	filled := score / 10
-	bar := strings.Repeat("█", filled) + strings.Repeat("░", 10-filled)
-	if score >= 80 {
-		return color.RedString(bar+" %d%%", score)
-	} else if score >= 60 {
-		return color.YellowString(bar+" %d%%", score)
-	}
-	return color.GreenString(bar+" %d%%", score)
 }

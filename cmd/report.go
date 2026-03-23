@@ -15,30 +15,21 @@ var ticketID string
 var reportCmd = &cobra.Command{
 	Use:   "report",
 	Short: "Run all diagnostics and produce a ticket-ready incident report",
-	Long: `Runs the full suite and produces markdown you can paste into Jira/ServiceNow.
-
-  ./k8s-doctor report --cluster prod-us-east-1 --ticket INC-1234 -o markdown
-`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
-
 		fmt := outputFmt
 		if fmt == "terminal" {
 			fmt = "markdown"
 		}
-
 		printer := output.NewPrinter(fmt)
 		engine, err := diag.NewEngine(ctx, namespace, verbose)
 		if err != nil {
 			return err
 		}
-
 		printer.Header("INCIDENT REPORT — cluster: %s | ticket: %s", clusterName, ticketID)
 		color.Cyan("→ Running full diagnostic suite...")
-
 		var all []diag.Finding
-
 		run := func(name string, fn func() ([]diag.Finding, error)) {
 			printer.Section(name)
 			findings, err := fn()
@@ -49,7 +40,6 @@ var reportCmd = &cobra.Command{
 			printer.Findings(findings)
 			all = append(all, findings...)
 		}
-
 		run("Pod health", engine.PodHealth)
 		run("Pending pods", engine.PendingPods)
 		run("Warning events (30m)", func() ([]diag.Finding, error) {
@@ -61,7 +51,6 @@ var reportCmd = &cobra.Command{
 		run("Node pressure", engine.NodePressure)
 		run("DNS diagnostics", engine.DNSDiag)
 		run("Ingress health", engine.IngressHealth)
-
 		printer.Section("Root cause summary")
 		printer.RootCauseSummary(all)
 		return nil
@@ -69,5 +58,6 @@ var reportCmd = &cobra.Command{
 }
 
 func init() {
-	reportCmd.Flags().StringVar(&ticketID, "ticket", "", "ticket ID to include in the report (e.g. INC-1234)")
+	reportCmd.Flags().StringVar(&ticketID, "ticket", "", "ticket ID (e.g. INC-1234)")
+	rootCmd.AddCommand(reportCmd)
 }

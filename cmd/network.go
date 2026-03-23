@@ -17,7 +17,7 @@ var networkCmd = &cobra.Command{
 
 var networkDNSCmd = &cobra.Command{
 	Use:   "dns",
-	Short: "Diagnose DNS: CoreDNS health, resolution errors, config issues",
+	Short: "Diagnose DNS: CoreDNS health, resolution errors",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 		defer cancel()
@@ -39,7 +39,7 @@ var networkDNSCmd = &cobra.Command{
 
 var networkSvcCmd = &cobra.Command{
 	Use:   "svc [service-name]",
-	Short: "Check a Service has healthy endpoints and matching selector pods",
+	Short: "Check a Service has healthy endpoints",
 	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -66,7 +66,7 @@ var networkSvcCmd = &cobra.Command{
 
 var networkNetpolCmd = &cobra.Command{
 	Use:   "netpol",
-	Short: "Show NetworkPolicies and flag deny-all / over-restrictive rules",
+	Short: "Show NetworkPolicies and flag deny-all rules",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
@@ -87,7 +87,7 @@ var networkNetpolCmd = &cobra.Command{
 
 var networkIngressCmd = &cobra.Command{
 	Use:   "ingress",
-	Short: "Check Ingress/ALB health, TLS cert expiry, backend reachability",
+	Short: "Check Ingress/ALB health",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 		defer cancel()
@@ -112,4 +112,5 @@ func init() {
 	networkCmd.AddCommand(networkSvcCmd)
 	networkCmd.AddCommand(networkNetpolCmd)
 	networkCmd.AddCommand(networkIngressCmd)
+	rootCmd.AddCommand(networkCmd)
 }

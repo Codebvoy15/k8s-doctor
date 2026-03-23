@@ -18,7 +18,7 @@ var awsCmd = &cobra.Command{
 
 var awsEC2Cmd = &cobra.Command{
 	Use:   "ec2",
-	Short: "EC2 instance status checks for EKS nodes (system + instance checks)",
+	Short: "EC2 instance status checks for EKS nodes",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
@@ -62,7 +62,7 @@ var awsALBCmd = &cobra.Command{
 
 var awsSGCmd = &cobra.Command{
 	Use:   "sg",
-	Short: "Audit EKS security group rules for common misconfigs",
+	Short: "Audit EKS security group rules",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
@@ -106,7 +106,7 @@ var awsIAMCmd = &cobra.Command{
 
 var awsASGCmd = &cobra.Command{
 	Use:   "asg",
-	Short: "Check Auto Scaling Groups — capacity, desired vs in-service, last activity",
+	Short: "Check Auto Scaling Groups",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
@@ -131,9 +131,6 @@ var awsASGCmd = &cobra.Command{
 			fmt.Printf("%-50s %8d %10d %5d %5d  %s\n",
 				g.Name, g.DesiredCapacity, g.InServiceCount, g.MinSize, g.MaxSize,
 				statusFn(g.Status))
-			if g.LastScalingActivity != "" {
-				fmt.Printf("  %s %s\n", color.HiBlackString("↳"), g.LastScalingActivity)
-			}
 		}
 		return nil
 	},
@@ -145,4 +142,5 @@ func init() {
 	awsCmd.AddCommand(awsSGCmd)
 	awsCmd.AddCommand(awsIAMCmd)
 	awsCmd.AddCommand(awsASGCmd)
+	rootCmd.AddCommand(awsCmd)
 }
