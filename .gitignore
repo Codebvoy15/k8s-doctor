@@ -1,0 +1,7 @@
+# Don't commit the macOS/local build
+k8s-doctor-darwin
+k8s-doctor-windows.exe
+*.local
+
+# Keep the Linux binary (this is how we distribute, same as Kluster-bull)
+# k8s-doctor  <-- intentionally NOT ignored
