@@ -24,7 +24,21 @@ var rootCmd = &cobra.Command{
 	Short: "Kubernetes troubleshooting CLI — zero config, jumpserver ready",
 	Long: `
   k8s-doctor — SRE-grade Kubernetes troubleshooting CLI
-  Zero config. Drop the binary, run it. Context switches on the fly.
+
+  Zero config. Connect to your cluster the way you normally do,
+  then just run commands. --cluster flag is optional.
+
+  Examples (jumpserver workflow — no flags needed):
+    ./k8s-doctor triage
+    ./k8s-doctor snapshot
+    ./k8s-doctor predict
+    ./k8s-doctor diff --window 1h
+    ./k8s-doctor audit --window 1h
+    ./k8s-doctor watch
+
+  Or switch clusters on the fly:
+    ./k8s-doctor triage --cluster prod-us-east-1
+    ./k8s-doctor snapshot --cluster staging-eu-west-1
 `,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		skip := []string{"help", "list", "__complete", "completion"}
@@ -33,13 +47,20 @@ var rootCmd = &cobra.Command{
 				return nil
 			}
 		}
+
+		// No --cluster flag — use whatever context is already active
+		// This is the jumpserver workflow: you already connected, just run
 		if clusterName == "" {
-			chosen, err := pickFromKubeContexts()
+			out, err := exec.Command("kubectl", "config", "current-context").Output()
 			if err != nil {
-				return err
+				return fmt.Errorf("no active kubectl context found\nConnect to a cluster first:\n  aws eks update-kubeconfig --name <cluster> --region <region>\nOr pass --cluster flag:\n  ./k8s-doctor triage --cluster <name>")
 			}
-			clusterName = chosen
+			clusterName = strings.TrimSpace(string(out))
+			color.Green("✓ Using active context: %s", clusterName)
+			return nil
 		}
+
+		// --cluster flag was passed — switch context
 		return switchContext(clusterName, region, awsProfile, verbose)
 	},
 }
@@ -51,7 +72,7 @@ func Execute() {
 }
 
 func init() {
-	rootCmd.PersistentFlags().StringVarP(&clusterName, "cluster", "c", "", "cluster name or kube context (fuzzy match)")
+	rootCmd.PersistentFlags().StringVarP(&clusterName, "cluster", "c", "", "cluster name or kube context (optional — uses active context if not set)")
 	rootCmd.PersistentFlags().StringVarP(&namespace, "namespace", "n", "", "namespace (default: all)")
 	rootCmd.PersistentFlags().StringVarP(&outputFmt, "output", "o", "terminal", "output format: terminal | json | markdown")
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "show raw commands being run")
@@ -62,24 +83,38 @@ func init() {
 
 func switchContext(cluster, reg, profile string, verbose bool) error {
 	color.Cyan("→ Switching to cluster: %s", cluster)
+
+	// Try existing context first
 	out, err := exec.Command("kubectl", "config", "use-context", cluster).CombinedOutput()
 	if err == nil {
 		color.Green("✓ Context: %s", strings.TrimSpace(string(out)))
 		return nil
 	}
+
+	// Not found locally — fetch via AWS EKS
 	color.HiBlack("  Context not in kubeconfig, fetching via AWS EKS...")
+
 	if reg == "" {
 		reg = guessRegion(cluster)
+		if verbose {
+			color.HiBlack("  Auto-detected region: %s", reg)
+		}
 	}
+
 	args := []string{"eks", "update-kubeconfig", "--name", cluster, "--region", reg}
 	if profile != "" {
 		args = append(args, "--profile", profile)
 	}
+	if verbose {
+		color.HiBlack("  Running: aws %s", strings.Join(args, " "))
+	}
+
 	cmd := exec.Command("aws", args...)
 	cmd.Env = os.Environ()
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("aws eks update-kubeconfig failed: %w\n%s", err, string(out))
 	}
+
 	exec.Command("kubectl", "config", "use-context", cluster).Run()
 	color.Green("✓ Context switched to: %s", cluster)
 	return nil
@@ -103,7 +138,7 @@ func guessRegion(name string) string {
 func pickFromKubeContexts() (string, error) {
 	out, err := exec.Command("kubectl", "config", "get-contexts", "-o", "name").Output()
 	if err != nil {
-		return "", fmt.Errorf("no kube contexts found — use --cluster <n> --region <region>")
+		return "", fmt.Errorf("no kube contexts found — connect to a cluster first")
 	}
 	contexts := strings.Split(strings.TrimSpace(string(out)), "\n")
 	fmt.Println(color.CyanString("\nAvailable contexts (%d):", len(contexts)))
