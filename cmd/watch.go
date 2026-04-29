@@ -17,7 +17,7 @@ var watchKinds string
 
 var watchCmd = &cobra.Command{
 	Use:   "watch",
-	Short: "Live stream of every resource change across the cluster in real time",
+	Short: "Live stream of every resource change in real time",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -25,7 +25,7 @@ var watchCmd = &cobra.Command{
 		signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 		go func() {
 			<-sig
-			fmt.Println(color.HiBlackString("\n\nStopped."))
+			fmt.Println(color.HiBlackString("\nstopped"))
 			cancel()
 		}()
 		engine, err := diag.NewEngine(ctx, namespace, verbose)
@@ -36,11 +36,22 @@ var watchCmd = &cobra.Command{
 		if watchKinds != "" {
 			kinds = strings.Split(watchKinds, ",")
 		}
-		fmt.Printf("%s\n", color.New(color.FgCyan, color.Bold).Sprintf(
-			"LIVE WATCH — cluster: %s | ns: %s | Ctrl+C to stop", clusterName, nsDisplay()))
-		fmt.Printf("  %-18s  %-10s  %-14s  %-28s  %-20s  %s\n",
-			"TIME", "EVENT", "KIND", "NAME", "NAMESPACE", "BY")
-		fmt.Println(color.HiBlackString("  " + strings.Repeat("─", 100)))
+
+		fmt.Printf("\nwatch  cluster=%s  ns=%s  Ctrl+C to stop\n",
+			color.New(color.FgWhite, color.Bold).Sprint(clusterName),
+			nsDisplay(),
+		)
+		fmt.Println(color.HiBlackString(strings.Repeat("─", 100)))
+		fmt.Printf("%-18s  %-8s  %-14s  %-28s  %-20s  %s\n",
+			color.HiBlackString("time"),
+			color.HiBlackString("event"),
+			color.HiBlackString("kind"),
+			color.HiBlackString("name"),
+			color.HiBlackString("namespace"),
+			color.HiBlackString("by"),
+		)
+		fmt.Println(color.HiBlackString(strings.Repeat("─", 100)))
+
 		eventCh, err := engine.WatchResources(kinds)
 		if err != nil {
 			return fmt.Errorf("watch failed: %w", err)
@@ -53,16 +64,15 @@ var watchCmd = &cobra.Command{
 				if !ok {
 					return nil
 				}
-				timeStr := ev.Timestamp.Format("15:04:05.000")
 				eventFn := color.GreenString
-				eventLabel := "ADD    "
+				eventLabel := "add   "
 				switch ev.EventType {
 				case "MODIFIED":
 					eventFn = color.YellowString
-					eventLabel = "UPDATE "
+					eventLabel = "update"
 				case "DELETED":
 					eventFn = color.RedString
-					eventLabel = "DELETE "
+					eventLabel = "delete"
 				}
 				criticalKinds := map[string]bool{
 					"Deployment": true, "StatefulSet": true, "DaemonSet": true,
@@ -70,26 +80,19 @@ var watchCmd = &cobra.Command{
 				}
 				star := ""
 				if criticalKinds[ev.Kind] {
-					star = color.YellowString(" ★")
+					star = " *"
 				}
 				fm := ev.FieldManager
 				if fm == "" {
 					fm = "unknown"
 				}
-				name := ev.Name
-				if len(name) > 28 {
-					name = name[:25] + "..."
-				}
-				ns := ev.Namespace
-				if len(ns) > 20 {
-					ns = ns[:17] + "..."
-				}
-				fmt.Printf("  %-18s  %s  %-14s  %-28s  %-20s  %s\n",
-					color.HiBlackString(timeStr),
+				fmt.Printf("%-18s  %-8s  %-14s  %-28s  %-20s  %s\n",
+					color.HiBlackString(ev.Timestamp.Format("15:04:05.000")),
 					eventFn(eventLabel),
 					ev.Kind+star,
-					name, ns,
-					color.CyanString(fm),
+					truncateStr(ev.Name, 28),
+					truncateStr(ev.Namespace, 20),
+					color.HiBlackString(fm),
 				)
 			}
 		}
@@ -97,7 +100,6 @@ var watchCmd = &cobra.Command{
 }
 
 func init() {
-	watchCmd.Flags().StringVar(&watchKinds, "kinds", "",
-		"comma-separated kinds to watch (default: all). e.g. Deployment,ConfigMap,Secret")
+	watchCmd.Flags().StringVar(&watchKinds, "kinds", "", "comma-separated kinds to watch (default: all)")
 	rootCmd.AddCommand(watchCmd)
 }

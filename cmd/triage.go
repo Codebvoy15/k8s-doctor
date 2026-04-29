@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 	"github.com/Codebvoy15/k8s-doctor/internal/diag"
 	"github.com/Codebvoy15/k8s-doctor/internal/output"
@@ -13,7 +12,7 @@ import (
 
 var triageCmd = &cobra.Command{
 	Use:   "triage",
-	Short: "First-stop triage: unhealthy pods, events, crash loops, pending pods",
+	Short: "First-stop triage: pod health, crash loops, pending pods, events",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
@@ -22,31 +21,37 @@ var triageCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		printer.Header("TRIAGE — cluster: %s | ns: %s", clusterName, nsDisplay())
-		printer.Section("Pod health")
+
+		printer.Header("triage  cluster=%s  ns=%s", clusterName, nsDisplay())
+
+		printer.Section("pod health")
 		podFindings, err := engine.PodHealth()
 		if err != nil {
 			return fmt.Errorf("pod health check failed: %w", err)
 		}
 		printer.Findings(podFindings)
-		printer.Section("Pending pods")
+
+		printer.Section("pending pods")
 		pendingFindings, err := engine.PendingPods()
 		if err != nil {
 			return fmt.Errorf("pending pods check failed: %w", err)
 		}
 		printer.Findings(pendingFindings)
-		printer.Section("Warning events (last 30m)")
+
+		printer.Section("warning events (last 30m)")
 		eventFindings, err := engine.RecentWarningEvents(30 * time.Minute)
 		if err != nil {
 			return fmt.Errorf("events check failed: %w", err)
 		}
 		printer.Findings(eventFindings)
-		printer.Section("High restart pods (>3)")
+
+		printer.Section("high restart pods (>3)")
 		restartFindings, err := engine.HighRestartPods(3)
 		if err != nil {
 			return fmt.Errorf("restart check failed: %w", err)
 		}
 		printer.Findings(restartFindings)
+
 		all := flatten(podFindings, pendingFindings, eventFindings, restartFindings)
 		printer.RootCauseSummary(all)
 		return nil
@@ -73,7 +78,7 @@ var triageLogsCmd = &cobra.Command{
 			return err
 		}
 		for _, l := range logs {
-			fmt.Println(color.HiWhiteString(l))
+			fmt.Println(l)
 		}
 		return nil
 	},

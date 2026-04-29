@@ -12,12 +12,12 @@ import (
 
 var networkCmd = &cobra.Command{
 	Use:   "network",
-	Short: "Network diagnostics: DNS, services, network policies, ingress",
+	Short: "Network diagnostics: dns, svc, netpol, ingress",
 }
 
 var networkDNSCmd = &cobra.Command{
 	Use:   "dns",
-	Short: "Diagnose DNS: CoreDNS health, resolution errors",
+	Short: "CoreDNS health and resolution errors",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 		defer cancel()
@@ -26,7 +26,7 @@ var networkDNSCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		printer.Header("DNS DIAGNOSTICS — cluster: %s", clusterName)
+		printer.Header("network dns  cluster=%s", clusterName)
 		findings, err := engine.DNSDiag()
 		if err != nil {
 			return fmt.Errorf("DNS diagnostic failed: %w", err)
@@ -39,7 +39,7 @@ var networkDNSCmd = &cobra.Command{
 
 var networkSvcCmd = &cobra.Command{
 	Use:   "svc [service-name]",
-	Short: "Check a Service has healthy endpoints",
+	Short: "Check a service has healthy endpoints",
 	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -53,7 +53,7 @@ var networkSvcCmd = &cobra.Command{
 		if len(args) > 0 {
 			svcName = args[0]
 		}
-		printer.Header("SERVICE CHECK — %s", svcName)
+		printer.Header("network svc  %s", svcName)
 		findings, err := engine.ServiceEndpoints(svcName)
 		if err != nil {
 			return err
@@ -75,7 +75,7 @@ var networkNetpolCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		printer.Header("NETWORK POLICIES — cluster: %s | ns: %s", clusterName, nsDisplay())
+		printer.Header("network netpol  cluster=%s  ns=%s", clusterName, nsDisplay())
 		findings, err := engine.NetworkPolicies()
 		if err != nil {
 			return err
@@ -87,7 +87,7 @@ var networkNetpolCmd = &cobra.Command{
 
 var networkIngressCmd = &cobra.Command{
 	Use:   "ingress",
-	Short: "Check Ingress/ALB health",
+	Short: "Ingress and ALB health",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 		defer cancel()
@@ -96,7 +96,7 @@ var networkIngressCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		printer.Header("INGRESS / ALB — cluster: %s", clusterName)
+		printer.Header("network ingress  cluster=%s", clusterName)
 		findings, err := engine.IngressHealth()
 		if err != nil {
 			return err

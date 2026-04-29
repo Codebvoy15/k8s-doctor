@@ -1,3 +1,4 @@
+// ── events.go ─────────────────────────────────────────────────────────────────
 package cmd
 
 import (
@@ -19,7 +20,7 @@ var (
 
 var eventsCmd = &cobra.Command{
 	Use:   "events",
-	Short: "Clean chronological event timeline — the cluster's flight recorder",
+	Short: "Chronological event timeline",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
@@ -35,51 +36,58 @@ var eventsCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("events failed: %w", err)
 		}
-		fmt.Printf("\n%s\n\n",
-			color.New(color.FgCyan, color.Bold).Sprintf("EVENT TIMELINE — last %s | %d events", eventsWindow, len(events)))
-		if len(events) == 0 {
-			fmt.Println(color.GreenString("  No events found in this window."))
-			return nil
-		}
-		fmt.Printf("  %-18s  %-10s  %-14s  %-28s  %-16s  %s\n",
-			"TIME", "TYPE", "REASON", "OBJECT", "NAMESPACE", "MESSAGE")
-		fmt.Println("  " + color.HiBlackString(strings.Repeat("─", 110)))
-		for _, ev := range events {
-			typeFn := color.GreenString
-			typeLabel := "Normal "
-			if ev.Type == "Warning" {
-				typeFn = color.YellowString
-				typeLabel = "Warning"
-			}
-			obj := ev.ObjectName
-			if len(obj) > 28 {
-				obj = obj[:25] + "..."
-			}
-			msg := ev.Message
-			if len(msg) > 60 {
-				msg = msg[:57] + "..."
-			}
-			countStr := ""
-			if ev.Count > 1 {
-				countStr = color.HiBlackString(" [x%d]", ev.Count)
-			}
-			fmt.Printf("  %-18s  %s  %-14s  %-28s  %-16s  %s%s\n",
-				color.HiBlackString(ev.LastSeen.Format("01-02 15:04:05")),
-				typeFn(typeLabel), ev.Reason, obj, ev.Namespace, msg, countStr)
-		}
+
 		warnings := 0
 		for _, ev := range events {
 			if ev.Type == "Warning" {
 				warnings++
 			}
 		}
-		warnStr := color.GreenString("%d", warnings)
-		if warnings > 5 {
-			warnStr = color.RedString("%d", warnings)
-		} else if warnings > 0 {
-			warnStr = color.YellowString("%d", warnings)
+
+		fmt.Printf("\nevents  cluster=%s  window=%s  total=%d  warnings=%d  %s\n",
+			color.New(color.FgWhite, color.Bold).Sprint(clusterName),
+			eventsWindow,
+			len(events),
+			warnings,
+			color.HiBlackString(time.Now().Format("15:04:05")),
+		)
+		fmt.Println(color.HiBlackString(strings.Repeat("─", 100)))
+
+		if len(events) == 0 {
+			fmt.Printf("\n  no events in this window\n\n")
+			return nil
 		}
-		fmt.Printf("\n  Total: %d events  |  %s warnings\n\n", len(events), warnStr)
+
+		fmt.Printf("\n%-18s  %-8s  %-14s  %-26s  %-14s  %s\n",
+			color.HiBlackString("time"),
+			color.HiBlackString("type"),
+			color.HiBlackString("reason"),
+			color.HiBlackString("object"),
+			color.HiBlackString("namespace"),
+			color.HiBlackString("message"),
+		)
+		fmt.Println(color.HiBlackString(strings.Repeat("─", 100)))
+
+		for _, ev := range events {
+			typeFn := color.HiBlackString
+			if ev.Type == "Warning" {
+				typeFn = color.YellowString
+			}
+			countStr := ""
+			if ev.Count > 1 {
+				countStr = color.HiBlackString(" x%d", ev.Count)
+			}
+			fmt.Printf("%-18s  %-8s  %-14s  %-26s  %-14s  %s%s\n",
+				color.HiBlackString(ev.LastSeen.Format("01-02 15:04:05")),
+				typeFn(ev.Type),
+				ev.Reason,
+				truncateStr(ev.ObjectName, 26),
+				truncateStr(ev.Namespace, 14),
+				truncateStr(ev.Message, 60),
+				countStr,
+			)
+		}
+		fmt.Println()
 		return nil
 	},
 }

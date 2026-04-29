@@ -18,16 +18,7 @@ var (
 
 var serveCmd = &cobra.Command{
 	Use:   "serve",
-	Short: "Start the web dashboard — see everything in your browser",
-	Long: `Starts a local web server with a real-time cluster dashboard.
-
-On the jumpserver:
-  ./k8s-doctor serve --port 8080
-
-On your local machine (SSH tunnel):
-  ssh -L 8080:localhost:8080 user@jumpserver
-  open http://localhost:8080
-`,
+	Short: "Start the web dashboard",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := context.Background()
 
@@ -37,13 +28,15 @@ On your local machine (SSH tunnel):
 		}
 
 		srv := server.NewServer(engine, serveRefresh)
-
 		addr := fmt.Sprintf(":%d", servePort)
-		color.Cyan("→ k8s-doctor dashboard starting...")
-		color.Green("✓ Open in browser: http://localhost:%d", servePort)
-		color.HiBlack("  Cluster:  %s", clusterName)
-		color.HiBlack("  Refresh:  every %ds", serveRefresh)
-		color.HiBlack("  Press Ctrl+C to stop\n")
+
+		fmt.Printf("\nserve  cluster=%s  port=%d  refresh=%ds\n",
+			color.New(color.FgWhite, color.Bold).Sprint(clusterName),
+			servePort,
+			serveRefresh,
+		)
+		fmt.Printf("open   http://localhost:%d\n", servePort)
+		fmt.Printf("%s\n\n", color.HiBlackString("press Ctrl+C to stop"))
 
 		httpSrv := &http.Server{
 			Addr:         addr,

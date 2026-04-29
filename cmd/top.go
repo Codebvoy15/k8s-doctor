@@ -13,7 +13,7 @@ import (
 
 var topCmd = &cobra.Command{
 	Use:   "top",
-	Short: "Who is eating your cluster — pods and nodes sorted by actual consumption",
+	Short: "Who is eating your cluster — pods and nodes by resource consumption",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
@@ -25,9 +25,24 @@ var topCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("top failed (is metrics-server running?): %w", err)
 		}
-		fmt.Printf("\n  %s\n", color.New(color.Bold).Sprint("Nodes"))
-		fmt.Printf("  %-44s  %10s  %10s  %10s  %10s\n", "NAME", "CPU", "CPU%", "MEMORY", "MEM%")
-		fmt.Println("  " + color.HiBlackString(strings.Repeat("─", 88)))
+
+		fmt.Printf("\ntop  cluster=%s  sort=%s  %s\n",
+			color.New(color.FgWhite, color.Bold).Sprint(clusterName),
+			topSort,
+			color.HiBlackString(time.Now().Format("15:04:05")),
+		)
+		fmt.Println(color.HiBlackString(strings.Repeat("─", 88)))
+
+		fmt.Printf("\nNODES\n")
+		fmt.Println(color.HiBlackString(strings.Repeat("─", 88)))
+		fmt.Printf("%-44s  %10s  %6s  %10s  %6s\n",
+			color.HiBlackString("name"),
+			color.HiBlackString("cpu"),
+			color.HiBlackString("cpu%"),
+			color.HiBlackString("memory"),
+			color.HiBlackString("mem%"),
+		)
+		fmt.Println(color.HiBlackString(strings.Repeat("─", 88)))
 		for _, n := range result.Nodes {
 			cpuFn := color.GreenString
 			memFn := color.GreenString
@@ -41,30 +56,45 @@ var topCmd = &cobra.Command{
 			} else if n.MemPercent > 60 {
 				memFn = color.YellowString
 			}
-			fmt.Printf("  %-44s  %10s  %10s  %10s  %10s\n",
-				n.Name, cpuFn(n.CPUUsage), cpuFn(fmt.Sprintf("%.0f%%", n.CPUPercent)),
-				memFn(n.MemUsage), memFn(fmt.Sprintf("%.0f%%", n.MemPercent)))
+			fmt.Printf("%-44s  %10s  %6s  %10s  %6s\n",
+				n.Name,
+				cpuFn(n.CPUUsage),
+				cpuFn(fmt.Sprintf("%.0f%%", n.CPUPercent)),
+				memFn(n.MemUsage),
+				memFn(fmt.Sprintf("%.0f%%", n.MemPercent)),
+			)
 		}
-		fmt.Printf("\n  %s\n", color.New(color.Bold).Sprint("Top pods by "+topSort))
-		fmt.Printf("  %-48s  %-20s  %10s  %10s\n", "POD", "NAMESPACE", "CPU", "MEMORY")
-		fmt.Println("  " + color.HiBlackString(strings.Repeat("─", 92)))
+
+		fmt.Printf("\nTOP PODS  by %s\n", topSort)
+		fmt.Println(color.HiBlackString(strings.Repeat("─", 88)))
+		fmt.Printf("%-48s  %-20s  %10s  %10s\n",
+			color.HiBlackString("pod"),
+			color.HiBlackString("namespace"),
+			color.HiBlackString("cpu"),
+			color.HiBlackString("memory"),
+		)
+		fmt.Println(color.HiBlackString(strings.Repeat("─", 88)))
 		for i, p := range result.Pods {
 			if i >= topLimit {
 				break
 			}
-			name := p.Name
-			if len(name) > 48 {
-				name = name[:45] + "..."
-			}
-			fmt.Printf("  %-48s  %-20s  %10s  %10s\n",
-				name, p.Namespace, color.YellowString(p.CPUUsage), color.YellowString(p.MemUsage))
+			fmt.Printf("%-48s  %-20s  %10s  %10s\n",
+				truncateStr(p.Name, 48),
+				p.Namespace,
+				color.YellowString(p.CPUUsage),
+				color.YellowString(p.MemUsage),
+			)
 		}
+
 		if len(result.NoisyNeighbours) > 0 {
-			fmt.Printf("\n  %s\n", color.New(color.FgYellow, color.Bold).Sprint("Noisy neighbours:"))
+			fmt.Printf("\nNOISY NEIGHBOURS\n")
+			fmt.Println(color.HiBlackString(strings.Repeat("─", 72)))
 			for _, n := range result.NoisyNeighbours {
-				fmt.Printf("  %s  %s in ns/%s — CPU: %s  Mem: %s\n",
-					color.YellowString("◐"), color.New(color.Bold).Sprint(n.PodName),
-					n.Namespace, color.YellowString(n.CPUUsage), color.YellowString(n.MemUsage))
+				fmt.Printf("  %-48s  ns=%-20s  cpu=%-10s  mem=%s\n",
+					n.PodName, n.Namespace,
+					color.YellowString(n.CPUUsage),
+					color.YellowString(n.MemUsage),
+				)
 			}
 		}
 		fmt.Println()

@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -15,7 +16,7 @@ var diagnoseWindow string
 
 var diagnoseCmd = &cobra.Command{
 	Use:   "diagnose",
-	Short: "One command root cause analysis — runs everything and gives you ONE answer",
+	Short: "Full correlation analysis — pod health, changes, audit, root cause",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 		defer cancel()
@@ -27,19 +28,28 @@ var diagnoseCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("invalid --window: use 30m, 1h, 2h")
 		}
-		fmt.Printf("\n%s\n", color.New(color.FgCyan, color.Bold).Sprint("╔══════════════════════════════════════════════════════════════╗"))
-		fmt.Printf("%s\n", color.CyanString("  DIAGNOSE — running full correlation analysis..."))
-		fmt.Printf("%s\n\n", color.New(color.FgCyan, color.Bold).Sprint("╚══════════════════════════════════════════════════════════════╝"))
-		color.HiBlack("  [1/4] Checking pod health...")
+
+		fmt.Printf("\ndiagnose  cluster=%s  %s\n",
+			color.New(color.FgWhite, color.Bold).Sprint(clusterName),
+			color.HiBlackString(time.Now().Format("15:04:05")),
+		)
+		fmt.Fprintln(os.Stderr, color.HiBlackString(strings.Repeat("─", 72)))
+
+		fmt.Fprintln(os.Stderr, color.HiBlackString("  checking pod health..."))
 		podFindings, _ := engine.PodHealth()
-		color.HiBlack("  [2/4] Checking pending pods and events...")
+
+		fmt.Fprintln(os.Stderr, color.HiBlackString("  checking pending pods and events..."))
 		pendingFindings, _ := engine.PendingPods()
 		eventFindings, _ := engine.RecentWarningEvents(window)
-		color.HiBlack("  [3/4] Checking recent changes...")
+
+		fmt.Fprintln(os.Stderr, color.HiBlackString("  checking recent changes..."))
 		diffs, _ := engine.LiveDeepDiff(window)
-		color.HiBlack("  [4/4] Checking audit log...")
+
+		fmt.Fprintln(os.Stderr, color.HiBlackString("  checking audit log..."))
 		auditEntries, _ := engine.AuditLog(window, "", "")
-		fmt.Println()
+		fmt.Fprintln(os.Stderr)
+
+		// Collect active faults
 		var activeFaults []diag.Finding
 		for _, f := range podFindings {
 			if f.Score > 0 {
@@ -56,39 +66,52 @@ var diagnoseCmd = &cobra.Command{
 				activeFaults = append(activeFaults, f)
 			}
 		}
+
+		// Sort by score descending
 		for i := 1; i < len(activeFaults); i++ {
 			for j := i; j > 0 && activeFaults[j].Score > activeFaults[j-1].Score; j-- {
 				activeFaults[j], activeFaults[j-1] = activeFaults[j-1], activeFaults[j]
 			}
 		}
+
 		if len(activeFaults) == 0 && len(diffs) == 0 {
-			fmt.Printf("  %s  No active problems found and no recent changes detected.\n\n", color.GreenString("✓"))
-			fmt.Printf("  %s\n", color.HiBlackString("Run ./k8s-doctor predict for proactive risks."))
+			fmt.Printf("status    no active problems and no recent changes\n\n")
+			fmt.Printf("next      ./k8s-doctor predict\n\n")
 			return nil
 		}
+
+		// Active faults
 		if len(activeFaults) > 0 {
-			fmt.Printf("  %s\n\n", color.New(color.FgRed, color.Bold).Sprint("Active problems detected:"))
+			fmt.Printf("FAULTS    %s\n", color.RedString("%d active", len(activeFaults)))
+			fmt.Println(color.HiBlackString(strings.Repeat("─", 72)))
 			for i, f := range activeFaults {
 				if i >= 5 {
+					fmt.Printf("          ... %d more\n", len(activeFaults)-5)
 					break
 				}
-				icon := color.YellowString("◐")
+				sevLabel := "WARN"
+				sevColor := color.YellowString
 				if f.Severity == diag.SeverityCritical {
-					icon = color.RedString("●")
+					sevLabel = "CRIT"
+					sevColor = color.RedString
 				}
-				fmt.Printf("  %s  %s\n", icon, color.New(color.Bold).Sprint(f.Title))
+				ref := ""
 				if f.Object != "" {
-					fmt.Printf("     object: %s/%s\n", f.Namespace, f.Object)
+					ref = fmt.Sprintf("  %s", color.HiBlackString(f.Namespace+"/"+f.Object))
 				}
+				fmt.Printf("  %s  %s%s\n", sevColor(sevLabel), f.Title, ref)
 				if f.Detail != "" {
-					fmt.Printf("     detail: %s\n", color.HiBlackString(f.Detail))
+					fmt.Printf("          %s\n", color.HiBlackString(f.Detail))
 				}
 			}
 			fmt.Println()
 		}
+
+		// Recent changes
 		if len(diffs) > 0 {
-			fmt.Printf("  %s\n\n", color.New(color.FgYellow, color.Bold).Sprint("Recent changes in this window:"))
 			shown := 0
+			fmt.Printf("CHANGES   %s\n", color.YellowString("%d in last %s", len(diffs), diagnoseWindow))
+			fmt.Println(color.HiBlackString(strings.Repeat("─", 72)))
 			for _, d := range diffs {
 				if shown >= 5 {
 					break
@@ -96,56 +119,69 @@ var diagnoseCmd = &cobra.Command{
 				if strings.Contains(d.OldValue, "use --save") {
 					continue
 				}
-				fmt.Printf("  %s  %s/%s  %s\n",
-					color.YellowString("△"),
-					color.CyanString(d.Kind),
+				corr := ""
+				if d.CorrelatedFault != "" {
+					corr = color.RedString("  [correlated fault]")
+				}
+				fmt.Printf("  %s  %s/%s  by %s%s\n",
+					color.YellowString("upd"),
+					d.Kind,
 					color.New(color.Bold).Sprint(d.Name),
-					color.HiBlackString("by "+d.ChangedBy),
+					color.HiBlackString(d.ChangedBy),
+					corr,
 				)
-				fmt.Printf("     field: %s\n", d.Field)
+				fmt.Printf("          field  %s\n", color.HiBlackString(d.Field))
 				if d.OldValue != "" {
-					fmt.Printf("     %s → %s\n",
-						color.RedString(d.OldValue),
-						color.GreenString(d.NewValue),
+					fmt.Printf("          %s -> %s\n",
+						color.HiBlackString(truncateStr(d.OldValue, 40)),
+						truncateStr(d.NewValue, 40),
 					)
 				}
 				shown++
 			}
 			fmt.Println()
 		}
-		fmt.Printf("%s\n\n", color.New(color.FgYellow, color.Bold).Sprint("  ⚡ Root cause assessment:"))
+
+		// Root cause
 		rc := correlateRootCause(activeFaults, diffs, auditEntries)
+		fmt.Printf("ROOT CAUSE\n")
+		fmt.Println(color.HiBlackString(strings.Repeat("─", 72)))
 		if rc.Conclusion != "" {
-			fmt.Printf("  %s\n\n", color.New(color.FgWhite, color.Bold).Sprint(rc.Conclusion))
+			fmt.Printf("  conclusion  %s\n", rc.Conclusion)
 		}
 		if rc.Evidence != "" {
-			fmt.Printf("  %s %s\n", color.HiBlackString("Evidence:  "), rc.Evidence)
+			fmt.Printf("  evidence    %s\n", color.HiBlackString(rc.Evidence))
 		}
 		if rc.ChangedBy != "" {
-			fmt.Printf("  %s %s\n", color.HiBlackString("Changed by:"), color.CyanString(rc.ChangedBy))
+			fmt.Printf("  changed by  %s\n", color.HiBlackString(rc.ChangedBy))
 		}
 		if rc.ChangedAt != "" {
-			fmt.Printf("  %s %s\n", color.HiBlackString("Changed at:"), rc.ChangedAt)
-		}
-		if rc.Remedy != "" {
-			fmt.Printf("\n  %s\n", color.New(color.FgGreen, color.Bold).Sprint("Recommended action:"))
-			fmt.Printf("  %s\n", color.GreenString(rc.Remedy))
+			fmt.Printf("  changed at  %s\n", color.HiBlackString(rc.ChangedAt))
 		}
 		if rc.Confidence > 0 {
-			filled := rc.Confidence / 10
-			bar := strings.Repeat("█", filled) + strings.Repeat("░", 10-filled)
-			barStr := color.GreenString(bar)
-			if rc.Confidence < 50 {
-				barStr = color.RedString(bar)
-			} else if rc.Confidence < 80 {
-				barStr = color.YellowString(bar)
+			confColor := color.HiBlackString
+			if rc.Confidence >= 80 {
+				confColor = color.GreenString
+			} else if rc.Confidence >= 60 {
+				confColor = color.YellowString
+			} else {
+				confColor = color.RedString
 			}
-			fmt.Printf("\n  %s %s (%d%% confidence)\n", color.HiBlackString("Confidence:"), barStr, rc.Confidence)
+			fmt.Printf("  confidence  %s\n", confColor("%d%%", rc.Confidence))
 		}
-		fmt.Printf("\n  %s\n", color.HiBlackString("Next steps:"))
-		fmt.Printf("  %s\n", color.HiBlackString("  ./k8s-doctor triage          — detailed pod health"))
-		fmt.Printf("  %s\n", color.HiBlackString("  ./k8s-doctor events           — full event timeline"))
-		fmt.Printf("  %s\n\n", color.HiBlackString("  ./k8s-doctor report           — generate ticket report"))
+		if rc.Remedy != "" {
+			fmt.Printf("  fix         %s\n", color.CyanString(rc.Remedy))
+		}
+		fmt.Println()
+
+		// Next steps
+		fmt.Printf("NEXT STEPS\n")
+		fmt.Println(color.HiBlackString(strings.Repeat("─", 72)))
+		fmt.Printf("  ./k8s-doctor triage          detailed pod health\n")
+		fmt.Printf("  ./k8s-doctor events           full event timeline\n")
+		fmt.Printf("  ./k8s-doctor node pressure    node diagnosis\n")
+		fmt.Printf("  ./k8s-doctor report           generate ticket report\n\n")
+
 		return nil
 	},
 }
@@ -162,8 +198,8 @@ type RootCause struct {
 func correlateRootCause(faults []diag.Finding, diffs []diag.DeepDiffEntry, audit []diag.AuditEntry) RootCause {
 	if len(faults) == 0 {
 		return RootCause{
-			Conclusion: "No active pod faults — problem may be at the infrastructure layer.",
-			Remedy:     "./k8s-doctor aws ec2  →  check EC2 instance health",
+			Conclusion: "no active pod faults — problem may be at the infrastructure layer",
+			Remedy:     "./k8s-doctor node pressure",
 			Confidence: 30,
 		}
 	}
@@ -179,8 +215,8 @@ func correlateRootCause(faults []diag.Finding, diffs []diag.DeepDiffEntry, audit
 				changedAt = d.Timestamp.Format("2006-01-02 15:04:05")
 			}
 			return RootCause{
-				Conclusion: fmt.Sprintf("%s on %s/%s is likely caused by a recent %s change.", topFault.Title, topFault.Namespace, topFault.Object, d.Kind),
-				Evidence:   fmt.Sprintf("%s field '%s' changed: %s → %s", d.Kind, d.Field, d.OldValue, d.NewValue),
+				Conclusion: fmt.Sprintf("%s on %s/%s — likely caused by recent %s change", topFault.Title, topFault.Namespace, topFault.Object, d.Kind),
+				Evidence:   fmt.Sprintf("%s field '%s' changed: %s -> %s", d.Kind, d.Field, truncateStr(d.OldValue, 40), truncateStr(d.NewValue, 40)),
 				ChangedBy:  d.ChangedBy,
 				ChangedAt:  changedAt,
 				Remedy:     remedy,
@@ -195,7 +231,7 @@ func correlateRootCause(faults []diag.Finding, diffs []diag.DeepDiffEntry, audit
 				remedy = fmt.Sprintf("kubectl rollout undo deployment/%s -n %s", a.Name, a.Namespace)
 			}
 			return RootCause{
-				Conclusion: fmt.Sprintf("%s on %s/%s — a %s change was detected around the same time.", topFault.Title, topFault.Namespace, topFault.Object, a.Kind),
+				Conclusion: fmt.Sprintf("%s on %s/%s — %s change detected around the same time", topFault.Title, topFault.Namespace, topFault.Object, a.Kind),
 				Evidence:   fmt.Sprintf("%s '%s' was %s", a.Kind, a.Name, a.Action),
 				ChangedBy:  a.FieldManager,
 				ChangedAt:  a.Timestamp.Format("2006-01-02 15:04:05"),
@@ -209,7 +245,7 @@ func correlateRootCause(faults []diag.Finding, diffs []diag.DeepDiffEntry, audit
 		remedy = fmt.Sprintf("kubectl describe pod -l app=%s -n %s", topFault.Object, topFault.Namespace)
 	}
 	return RootCause{
-		Conclusion: fmt.Sprintf("%s on %s/%s — no recent changes detected that correlate directly.", topFault.Title, topFault.Namespace, topFault.Object),
+		Conclusion: fmt.Sprintf("%s on %s/%s — no correlated changes found", topFault.Title, topFault.Namespace, topFault.Object),
 		Evidence:   topFault.Detail,
 		Remedy:     remedy,
 		Confidence: 45,

@@ -23,37 +23,56 @@ var rollbackCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+
 		if len(args) == 1 {
 			return doRollback(ctx, args[0], namespace)
 		}
+
 		history, err := engine.RollbackTargets(namespace)
 		if err != nil {
 			return fmt.Errorf("could not fetch rollout history: %w", err)
 		}
 		if len(history) == 0 {
-			fmt.Println(color.YellowString("  No recent deployment changes found in the last 24h."))
+			fmt.Printf("\n  no recent deployment changes in the last 24h\n\n")
 			return nil
 		}
-		fmt.Printf("\n%s\n\n", color.New(color.FgCyan, color.Bold).Sprint("RECENT DEPLOYMENT CHANGES — pick one to rollback"))
-		fmt.Printf("  %-4s  %-30s  %-16s  %-20s  %s\n", "#", "DEPLOYMENT", "NAMESPACE", "CHANGED BY", "WHEN")
-		fmt.Println("  " + color.HiBlackString(strings.Repeat("─", 80)))
+
+		fmt.Printf("\nrollback  cluster=%s  %s\n",
+			color.New(color.FgWhite, color.Bold).Sprint(clusterName),
+			color.HiBlackString(time.Now().Format("15:04:05")),
+		)
+		fmt.Println(color.HiBlackString(strings.Repeat("─", 72)))
+		fmt.Printf("\n%-4s  %-30s  %-16s  %-20s  %s\n",
+			color.HiBlackString("#"),
+			color.HiBlackString("deployment"),
+			color.HiBlackString("namespace"),
+			color.HiBlackString("changed by"),
+			color.HiBlackString("when"),
+		)
+		fmt.Println(color.HiBlackString(strings.Repeat("─", 80)))
+
 		for i, h := range history {
 			if i >= 10 {
 				break
 			}
 			age := time.Since(h.ChangedAt).Round(time.Minute)
-			fmt.Printf("  %-4d  %-30s  %-16s  %-20s  %s ago\n",
-				i+1, color.CyanString(h.Name), h.Namespace,
-				color.HiBlackString(h.ChangedBy), age)
+			fmt.Printf("%-4d  %-30s  %-16s  %-20s  %s ago\n",
+				i+1,
+				h.Name,
+				h.Namespace,
+				color.HiBlackString(h.ChangedBy),
+				age,
+			)
 			if h.ImageChange != "" {
-				fmt.Printf("        %s %s\n", color.HiBlackString("↳"), color.YellowString(h.ImageChange))
+				fmt.Printf("       %s\n", color.HiBlackString(h.ImageChange))
 			}
 		}
-		fmt.Print(color.CyanString("\n  Enter number to rollback (or q to quit): "))
+
+		fmt.Print("\nenter number to rollback (q to quit): ")
 		var input string
 		fmt.Scanln(&input)
 		if input == "q" || input == "Q" || input == "" {
-			fmt.Println("  Aborted.")
+			fmt.Println("aborted")
 			return nil
 		}
 		var idx int
@@ -69,36 +88,42 @@ func doRollback(ctx context.Context, name, ns string) error {
 	if ns == "" {
 		ns = "default"
 	}
-	histOut, _ := exec.CommandContext(ctx, "kubectl", "rollout", "history", "deployment/"+name, "-n", ns).Output()
+	histOut, _ := exec.CommandContext(ctx, "kubectl", "rollout", "history",
+		"deployment/"+name, "-n", ns).Output()
 	if len(histOut) > 0 {
-		fmt.Printf("\n  %s\n", color.HiBlackString("Rollout history:"))
+		fmt.Printf("\nrollout history:\n")
 		for _, line := range strings.Split(string(histOut), "\n") {
 			if line != "" {
 				fmt.Printf("  %s\n", color.HiBlackString(line))
 			}
 		}
 	}
-	fmt.Printf("\n  %s Roll back deployment/%s in namespace %s? [y/N]: ",
-		color.YellowString("⚠"), color.New(color.Bold).Sprint(name), color.CyanString(ns))
+
+	fmt.Printf("\nrollback  deployment/%s  ns=%s\n", name, ns)
+	fmt.Print("confirm [y/N]: ")
 	var confirm string
 	fmt.Scanln(&confirm)
 	if confirm != "y" && confirm != "Y" {
-		fmt.Println("  Aborted.")
+		fmt.Println("aborted")
 		return nil
 	}
-	color.Cyan("  → kubectl rollout undo deployment/%s -n %s", name, ns)
-	out, err := exec.CommandContext(ctx, "kubectl", "rollout", "undo", "deployment/"+name, "-n", ns).CombinedOutput()
+
+	fmt.Printf("running  kubectl rollout undo deployment/%s -n %s\n", name, ns)
+	out, err := exec.CommandContext(ctx, "kubectl", "rollout", "undo",
+		"deployment/"+name, "-n", ns).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("rollback failed: %w\n%s", err, string(out))
 	}
-	color.Green("  ✓ %s", strings.TrimSpace(string(out)))
-	color.HiBlack("  Watching rollout status...")
-	statusCmd := exec.CommandContext(ctx, "kubectl", "rollout", "status", "deployment/"+name, "-n", ns, "--timeout=2m")
+	fmt.Printf("done     %s\n", strings.TrimSpace(string(out)))
+
+	statusCmd := exec.CommandContext(ctx, "kubectl", "rollout", "status",
+		"deployment/"+name, "-n", ns, "--timeout=2m")
 	if err := statusCmd.Run(); err != nil {
-		color.Yellow("  ⚠  Check: kubectl rollout status deployment/%s -n %s", name, ns)
+		fmt.Printf("status   check: kubectl rollout status deployment/%s -n %s\n", name, ns)
 	} else {
-		color.Green("  ✓ Rollback complete and healthy")
+		fmt.Printf("status   %s\n", color.GreenString("healthy"))
 	}
+	fmt.Println()
 	return nil
 }
 

@@ -19,14 +19,14 @@ func (p *Printer) Header(format string, args ...interface{}) {
 	title := fmt.Sprintf(format, args...)
 	switch p.format {
 	case "markdown":
-		fmt.Printf("# %s\n_Generated: %s_\n\n", title, time.Now().Format("2006-01-02 15:04:05 MST"))
+		fmt.Printf("# %s\n_generated: %s_\n\n", title, time.Now().Format("2006-01-02 15:04:05"))
 	case "json":
 	default:
-		fmt.Printf("\n%s %s\n%s\n",
-			color.CyanString("┌─"),
-			color.New(color.FgCyan, color.Bold).Sprint(title),
-			color.HiBlackString("   %s", time.Now().Format("15:04:05")),
+		fmt.Printf("\n%s  %s\n",
+			color.New(color.FgWhite, color.Bold).Sprint(strings.ToLower(title)),
+			color.HiBlackString(time.Now().Format("15:04:05")),
 		)
+		fmt.Println(color.HiBlackString(strings.Repeat("─", 72)))
 	}
 }
 
@@ -36,7 +36,7 @@ func (p *Printer) Section(label string) {
 		fmt.Printf("\n## %s\n\n", label)
 	case "json":
 	default:
-		fmt.Printf("\n  %s %s\n", color.HiBlackString("▸"), color.New(color.Bold).Sprint(label))
+		fmt.Printf("\n%s\n", color.New(color.Bold).Sprint(strings.ToUpper(label)))
 	}
 }
 
@@ -47,45 +47,47 @@ func (p *Printer) Findings(findings []diag.Finding) {
 		fmt.Println(string(b))
 	case "markdown":
 		for _, f := range findings {
-			icon := "ℹ️"
+			sev := "info"
 			if f.Severity == diag.SeverityCritical {
-				icon = "🔴"
+				sev = "critical"
 			} else if f.Severity == diag.SeverityWarning {
-				icon = "🟡"
+				sev = "warning"
 			}
-			ref := f.Object
+			ref := ""
 			if f.Namespace != "" && f.Object != "" {
 				ref = f.Namespace + "/" + f.Object
+			} else if f.Object != "" {
+				ref = f.Object
 			}
 			if ref != "" {
-				fmt.Printf("- %s **%s** `%s`\n", icon, f.Title, ref)
+				fmt.Printf("- [%s] %s  %s\n", sev, f.Title, ref)
 			} else {
-				fmt.Printf("- %s **%s**\n", icon, f.Title)
+				fmt.Printf("- [%s] %s\n", sev, f.Title)
 			}
 			if f.Detail != "" {
-				fmt.Printf("  - %s\n", f.Detail)
+				fmt.Printf("  %s\n", f.Detail)
 			}
 			if f.Remedy != "" {
-				fmt.Printf("  - Fix: `%s`\n", f.Remedy)
+				fmt.Printf("  fix: %s\n", f.Remedy)
 			}
 		}
 	default:
 		for _, f := range findings {
-			icon, clr := severityStyle(f.Severity)
-			obj := ""
+			sevLabel, sevColor := severityStyle(f.Severity)
+			ref := ""
 			if f.Object != "" {
 				ns := ""
 				if f.Namespace != "" {
 					ns = f.Namespace + "/"
 				}
-				obj = color.HiBlackString(" [%s%s]", ns, f.Object)
+				ref = color.HiBlackString("  %s%s", ns, f.Object)
 			}
-			fmt.Printf("    %s %s%s\n", icon, clr(f.Title), obj)
+			fmt.Printf("  %s  %s%s\n", sevColor(sevLabel), f.Title, ref)
 			if f.Detail != "" {
-				fmt.Printf("      %s %s\n", color.HiBlackString("↳"), f.Detail)
+				fmt.Printf("        %s\n", color.HiBlackString(f.Detail))
 			}
 			if f.Remedy != "" {
-				fmt.Printf("      %s %s\n", color.CyanString("→"), color.CyanString(f.Remedy))
+				fmt.Printf("        fix: %s\n", color.CyanString(f.Remedy))
 			}
 		}
 	}
@@ -102,16 +104,20 @@ func (p *Printer) RootCauseSummary(findings []diag.Finding) {
 		return
 	}
 	sort.Slice(real, func(i, j int) bool { return real[i].Score > real[j].Score })
+
 	switch p.format {
 	case "markdown":
-		fmt.Println("\n---\n\n## Root cause assessment\n")
+		fmt.Println("\n---\n\n## root cause\n")
 		for i, f := range real {
 			if i >= 3 {
 				break
 			}
-			fmt.Printf("%d. **[%d%%]** %s — %s\n", i+1, f.Score, f.Title, f.Detail)
+			fmt.Printf("%d. [%d%%] %s\n", i+1, f.Score, f.Title)
+			if f.Detail != "" {
+				fmt.Printf("   %s\n", f.Detail)
+			}
 			if f.Remedy != "" {
-				fmt.Printf("   - `%s`\n", f.Remedy)
+				fmt.Printf("   fix: %s\n", f.Remedy)
 			}
 		}
 	case "json":
@@ -122,39 +128,47 @@ func (p *Printer) RootCauseSummary(findings []diag.Finding) {
 		b, _ := json.MarshalIndent(map[string]interface{}{"top_findings": top}, "", "  ")
 		fmt.Println(string(b))
 	default:
-		fmt.Printf("\n  %s\n", color.New(color.FgYellow, color.Bold).Sprint("⚡ Root cause (top signals):"))
+		fmt.Printf("\n%s\n", color.New(color.Bold).Sprint("ROOT CAUSE"))
+		fmt.Println(color.HiBlackString(strings.Repeat("─", 72)))
 		for i, f := range real {
 			if i >= 3 {
 				break
 			}
-			icon, _ := severityStyle(f.Severity)
-			filled := f.Score / 10
-			bar := strings.Repeat("█", filled) + strings.Repeat("░", 10-filled)
-			barStr := color.GreenString(bar+" %d%%", f.Score)
+			_, sevColor := severityStyle(f.Severity)
+			scoreColor := color.HiBlackString
 			if f.Score >= 80 {
-				barStr = color.RedString(bar+" %d%%", f.Score)
+				scoreColor = color.RedString
 			} else if f.Score >= 60 {
-				barStr = color.YellowString(bar+" %d%%", f.Score)
+				scoreColor = color.YellowString
 			}
-			fmt.Printf("  %s [%s] %s\n", icon, barStr, color.New(color.Bold).Sprint(f.Title))
+			fmt.Printf("  %s  %s\n",
+				scoreColor(fmt.Sprintf("%d%%", f.Score)),
+				sevColor(f.Title),
+			)
 			if f.Object != "" {
-				fmt.Printf("      object: %s/%s\n", f.Namespace, f.Object)
+				fmt.Printf("        object  %s/%s\n",
+					color.HiBlackString(f.Namespace),
+					color.HiBlackString(f.Object),
+				)
+			}
+			if f.Detail != "" {
+				fmt.Printf("        detail  %s\n", color.HiBlackString(f.Detail))
 			}
 			if f.Remedy != "" {
-				fmt.Printf("      action: %s\n", color.CyanString(f.Remedy))
+				fmt.Printf("        fix     %s\n", color.CyanString(f.Remedy))
 			}
+			fmt.Println()
 		}
-		fmt.Println()
 	}
 }
 
 func severityStyle(s diag.Severity) (string, func(string, ...interface{}) string) {
 	switch s {
 	case diag.SeverityCritical:
-		return "●", color.New(color.FgRed, color.Bold).Sprintf
+		return "CRIT", color.New(color.FgRed).Sprintf
 	case diag.SeverityWarning:
-		return "◐", color.New(color.FgYellow).Sprintf
+		return "WARN", color.New(color.FgYellow).Sprintf
 	default:
-		return "○", color.New(color.FgGreen).Sprintf
+		return "ok  ", color.New(color.FgGreen).Sprintf
 	}
 }
