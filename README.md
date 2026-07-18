@@ -120,7 +120,50 @@ git pull
 
 # JSON output (pipe to jq)
 ./k8s-doctor triage --cluster prod-us-east-1 --output json | jq .
+
+# INVENTORY — because 'kubectl get all' doesn't get all
+# Full namespace scan across every API group + CRD, grouped, with orphan/stuck flags
+./k8s-doctor inventory -n payments --cluster prod-us-east-1
+./k8s-doctor inventory -A --cluster prod-us-east-1
+./k8s-doctor inventory -n payments --cluster prod-us-east-1 -o json | jq .
+
+# Only the suspicious/orphaned resources, with reasons
+./k8s-doctor inventory orphans -n payments --cluster prod-us-east-1
+
+# Only resources stuck behind finalizers
+./k8s-doctor inventory stuck -n payments --cluster prod-us-east-1
+
+# Explain a single resource — owner chain, GitOps signal, referrers
+./k8s-doctor inventory explain secret/old-api-key -n payments --cluster prod-us-east-1
+./k8s-doctor inventory explain cm/app-config      -n payments --cluster prod-us-east-1
+
+# Filter scans
+./k8s-doctor inventory -n payments --api-groups=apps,networking.k8s.io
+./k8s-doctor inventory -n payments --exclude-api-groups=metrics.k8s.io
+./k8s-doctor inventory -n payments --resources=pods,secrets,configmaps
+./k8s-doctor inventory -n payments -l app=checkout
+./k8s-doctor inventory -n payments --include-events
+./k8s-doctor inventory -n payments --include-noisy
 ```
+
+### Inventory — how classification works
+
+Every scanned object gets one status:
+
+| Status       | Meaning                                                                 |
+| ------------ | ------------------------------------------------------------------------ |
+| `OK`         | Has an `ownerReference` (owned by a controller)                          |
+| `GITOPS`     | No owner, but carries an ArgoCD/Flux/Helm label, annotation, or manager  |
+| `SUSPICIOUS` | No owner, no GitOps signal — a candidate orphan, worth investigating     |
+| `STUCK`      | `deletionTimestamp` set but finalizers are blocking removal (>2m)        |
+
+`explain` additionally walks Pods in the namespace to see if a ConfigMap/Secret
+is actually referenced (`envFrom`, `env[].valueFrom`, volumes), and walks
+Ingresses to see if a Service is referenced by a backend rule.
+
+By default, `events`, `leases` (coordination.k8s.io), and `metrics.k8s.io`
+resources are excluded from scans as noise — pass `--include-noisy` to
+include everything, or `--include-events` for just Events.
 
 ---
 

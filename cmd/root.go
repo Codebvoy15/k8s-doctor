@@ -33,6 +33,9 @@ Examples:
   k8s-doctor diff --window 1h
   k8s-doctor audit --window 2h
   k8s-doctor serve --port 8080
+  k8s-doctor inventory -n production
+  k8s-doctor inventory orphans -n production
+  k8s-doctor inventory explain secret/my-secret -n production
 
   # switch clusters on the fly
   k8s-doctor triage --cluster prod-us-east-1

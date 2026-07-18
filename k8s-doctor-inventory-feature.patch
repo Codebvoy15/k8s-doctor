@@ -1,0 +1,1064 @@
+diff --git a/README.md b/README.md
+index e1d844e..dd930e3 100644
+--- a/README.md
++++ b/README.md
+@@ -120,8 +120,51 @@ git pull
+ 
+ # JSON output (pipe to jq)
+ ./k8s-doctor triage --cluster prod-us-east-1 --output json | jq .
++
++# INVENTORY — because 'kubectl get all' doesn't get all
++# Full namespace scan across every API group + CRD, grouped, with orphan/stuck flags
++./k8s-doctor inventory -n payments --cluster prod-us-east-1
++./k8s-doctor inventory -A --cluster prod-us-east-1
++./k8s-doctor inventory -n payments --cluster prod-us-east-1 -o json | jq .
++
++# Only the suspicious/orphaned resources, with reasons
++./k8s-doctor inventory orphans -n payments --cluster prod-us-east-1
++
++# Only resources stuck behind finalizers
++./k8s-doctor inventory stuck -n payments --cluster prod-us-east-1
++
++# Explain a single resource — owner chain, GitOps signal, referrers
++./k8s-doctor inventory explain secret/old-api-key -n payments --cluster prod-us-east-1
++./k8s-doctor inventory explain cm/app-config      -n payments --cluster prod-us-east-1
++
++# Filter scans
++./k8s-doctor inventory -n payments --api-groups=apps,networking.k8s.io
++./k8s-doctor inventory -n payments --exclude-api-groups=metrics.k8s.io
++./k8s-doctor inventory -n payments --resources=pods,secrets,configmaps
++./k8s-doctor inventory -n payments -l app=checkout
++./k8s-doctor inventory -n payments --include-events
++./k8s-doctor inventory -n payments --include-noisy
+ ```
+ 
++### Inventory — how classification works
++
++Every scanned object gets one status:
++
++| Status       | Meaning                                                                 |
++| ------------ | ------------------------------------------------------------------------ |
++| `OK`         | Has an `ownerReference` (owned by a controller)                          |
++| `GITOPS`     | No owner, but carries an ArgoCD/Flux/Helm label, annotation, or manager  |
++| `SUSPICIOUS` | No owner, no GitOps signal — a candidate orphan, worth investigating     |
++| `STUCK`      | `deletionTimestamp` set but finalizers are blocking removal (>2m)        |
++
++`explain` additionally walks Pods in the namespace to see if a ConfigMap/Secret
++is actually referenced (`envFrom`, `env[].valueFrom`, volumes), and walks
++Ingresses to see if a Service is referenced by a backend rule.
++
++By default, `events`, `leases` (coordination.k8s.io), and `metrics.k8s.io`
++resources are excluded from scans as noise — pass `--include-noisy` to
++include everything, or `--include-events` for just Events.
++
+ ---
+ 
+ ## Context switching — how it works
+diff --git a/cmd/inventory.go b/cmd/inventory.go
+new file mode 100644
+index 0000000..9f38170
+--- /dev/null
++++ b/cmd/inventory.go
+@@ -0,0 +1,350 @@
++package cmd
++
++import (
++	"context"
++	"encoding/json"
++	"fmt"
++	"strings"
++	"time"
++
++	"github.com/Codebvoy15/k8s-doctor/internal/diag"
++	"github.com/fatih/color"
++	"github.com/spf13/cobra"
++)
++
++var (
++	invAllNamespaces    bool
++	invAPIGroups        string
++	invExcludeAPIGroups string
++	invResources        string
++	invExcludeResources string
++	invSelector         string
++	invIncludeEvents    bool
++	invIncludeNoisy     bool
++)
++
++var inventoryCmd = &cobra.Command{
++	Use:   "inventory",
++	Short: "Full namespace resource inventory — because 'kubectl get all' doesn't get all",
++	Long: `Scans every API resource in a namespace, including CRDs, and classifies each
++one as OK, GITOPS-managed, SUSPICIOUS (orphaned), or STUCK (finalizer-blocked).
++
++  k8s-doctor inventory -n production
++  k8s-doctor inventory -n production -o json
++  k8s-doctor inventory --all-namespaces
++
++Subcommands:
++  k8s-doctor inventory explain <kind>/<name> -n <ns>
++  k8s-doctor inventory orphans -n <ns>
++  k8s-doctor inventory stuck -n <ns>
++`,
++	RunE: func(cmd *cobra.Command, args []string) error {
++		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
++		defer cancel()
++		engine, err := diag.NewEngine(ctx, namespace, verbose)
++		if err != nil {
++			return err
++		}
++
++		opts := buildInventoryOptions()
++		report, err := engine.ScanNamespace(opts)
++		if err != nil {
++			return fmt.Errorf("inventory scan failed: %w", err)
++		}
++		printInventoryReport(report)
++		return nil
++	},
++}
++
++var explainCmd = &cobra.Command{
++	Use:   "explain <kind>/<name>",
++	Short: "Per-resource classification report — owner chain, referrers, confidence",
++	Long: `Explains why a specific resource is classified the way it is.
++
++  k8s-doctor inventory explain secret/old-api-key -n production
++  k8s-doctor inventory explain cm/app-config -n default
++  k8s-doctor inventory explain pod/debug-net -n production
++`,
++	Args: cobra.ExactArgs(1),
++	RunE: func(cmd *cobra.Command, args []string) error {
++		kind, name, err := splitKindName(args[0])
++		if err != nil {
++			return err
++		}
++		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
++		defer cancel()
++		engine, err := diag.NewEngine(ctx, namespace, verbose)
++		if err != nil {
++			return err
++		}
++		res, err := engine.ExplainResource(kind, name, namespace)
++		if err != nil {
++			return err
++		}
++		printExplain(res)
++		return nil
++	},
++}
++
++var orphansCmd = &cobra.Command{
++	Use:   "orphans",
++	Short: "Show only suspicious/orphaned resources with reasons",
++	RunE: func(cmd *cobra.Command, args []string) error {
++		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
++		defer cancel()
++		engine, err := diag.NewEngine(ctx, namespace, verbose)
++		if err != nil {
++			return err
++		}
++		opts := buildInventoryOptions()
++		report, err := engine.ScanNamespace(opts)
++		if err != nil {
++			return fmt.Errorf("inventory scan failed: %w", err)
++		}
++		printEntryList("SUSPICIOUS RESOURCES", report.Suspicious, report.Namespace)
++		return nil
++	},
++}
++
++var stuckCmd = &cobra.Command{
++	Use:   "stuck",
++	Short: "Show only resources stuck behind finalizers",
++	RunE: func(cmd *cobra.Command, args []string) error {
++		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
++		defer cancel()
++		engine, err := diag.NewEngine(ctx, namespace, verbose)
++		if err != nil {
++			return err
++		}
++		opts := buildInventoryOptions()
++		report, err := engine.ScanNamespace(opts)
++		if err != nil {
++			return fmt.Errorf("inventory scan failed: %w", err)
++		}
++		printEntryList("STUCK RESOURCES", report.Stuck, report.Namespace)
++		return nil
++	},
++}
++
++func buildInventoryOptions() diag.InventoryOptions {
++	return diag.InventoryOptions{
++		Namespace:        namespace,
++		AllNamespaces:    invAllNamespaces,
++		APIGroups:        splitCSV(invAPIGroups),
++		ExcludeAPIGroups: splitCSV(invExcludeAPIGroups),
++		Resources:        splitCSV(invResources),
++		ExcludeResources: splitCSV(invExcludeResources),
++		Selector:         invSelector,
++		IncludeEvents:    invIncludeEvents,
++		IncludeNoisy:     invIncludeNoisy,
++	}
++}
++
++func splitCSV(s string) []string {
++	if s == "" {
++		return nil
++	}
++	var out []string
++	for _, p := range strings.Split(s, ",") {
++		p = strings.TrimSpace(p)
++		if p != "" {
++			out = append(out, p)
++		}
++	}
++	return out
++}
++
++func splitKindName(arg string) (string, string, error) {
++	parts := strings.SplitN(arg, "/", 2)
++	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
++		return "", "", fmt.Errorf("expected <kind>/<name>, e.g. secret/my-secret")
++	}
++	return parts[0], parts[1], nil
++}
++
++// ─────────────────────────────────────────────────────────────
++// Rendering
++// ─────────────────────────────────────────────────────────────
++
++func printInventoryReport(r *diag.InventoryReport) {
++	if outputFmt == "json" {
++		b, _ := json.MarshalIndent(r, "", "  ")
++		fmt.Println(string(b))
++		return
++	}
++
++	nsLabel := r.Namespace
++	if nsLabel == "" {
++		nsLabel = "all"
++	}
++	fmt.Printf("\nNamespace: %s   Context: %s\n", nsLabel, clusterName)
++	fmt.Println(color.HiBlackString(strings.Repeat("─", 64)))
++
++	for _, g := range r.Groups {
++		label := g.Group
++		if label == "" {
++			label = "core"
++		}
++		fmt.Printf("\n%s\n", color.New(color.Bold).Sprint(label))
++		for _, rc := range g.Resources {
++			suspiciousLabel := ""
++			if rc.Suspicious > 0 {
++				suspiciousLabel = color.YellowString("  (suspicious: %d ⚠)", rc.Suspicious)
++			}
++			fmt.Printf("  %-16s %3d%s\n", rc.Kind, rc.Count, suspiciousLabel)
++		}
++	}
++
++	fmt.Printf("\n%s\n", color.New(color.Bold).Sprint("Stuck Resources"))
++	if len(r.Stuck) == 0 {
++		fmt.Printf("  None  %s\n", color.GreenString("✓"))
++	} else {
++		for _, e := range r.Stuck {
++			fmt.Printf("  %s  %s/%s\n", color.RedString("!"), strings.ToLower(e.Obj.Kind), e.Obj.Name)
++		}
++	}
++
++	fmt.Println()
++	fmt.Printf("Total resources:  %d\n", r.TotalResources)
++	fmt.Printf("Scanned types:    %d   Skipped: %d\n", r.ScannedTypes, r.SkippedTypes)
++	fmt.Printf("Duration:         %s\n\n", r.Duration.Round(time.Millisecond))
++
++	if len(r.Suspicious) > 0 {
++		fmt.Printf("tip  %d suspicious resource(s) found — run 'k8s-doctor inventory orphans' for details\n\n", len(r.Suspicious))
++	}
++}
++
++func printExplain(res *diag.ExplainResult) {
++	if outputFmt == "json" {
++		b, _ := json.MarshalIndent(res, "", "  ")
++		fmt.Println(string(b))
++		return
++	}
++
++	o := res.Entry.Obj
++	c := res.Entry.Class
++	fmt.Printf("\n%s/%s\n", strings.ToLower(o.Kind), o.Name)
++	fmt.Println(color.HiBlackString(strings.Repeat("─", 64)))
++
++	fmt.Println(color.New(color.Bold).Sprint("Identity"))
++	fmt.Printf("  Namespace:  %s\n", o.Namespace)
++	fmt.Printf("  Kind:       %s\n", o.Kind)
++	if o.UID != "" {
++		fmt.Printf("  UID:        %s\n", o.UID)
++	}
++	fmt.Printf("  Age:        %s\n", formatDuration(o.Age))
++	if !o.CreatedAt.IsZero() {
++		fmt.Printf("  Created:    %s\n", o.CreatedAt.Format(time.RFC3339))
++	}
++	if o.Manager != "" {
++		fmt.Printf("  Manager:    %s\n", o.Manager)
++	}
++
++	fmt.Printf("\n%s\n", color.New(color.Bold).Sprint("Classification"))
++	statusColor := color.GreenString
++	switch c.Status {
++	case "SUSPICIOUS":
++		statusColor = color.YellowString
++	case "STUCK":
++		statusColor = color.RedString
++	}
++	fmt.Printf("  Status:     %s\n", statusColor(c.Status))
++	if len(c.Reasons) > 0 {
++		fmt.Println("  Reasons:")
++		for _, r := range c.Reasons {
++			fmt.Printf("    • %s\n", r)
++		}
++	}
++
++	fmt.Printf("\n%s\n", color.New(color.Bold).Sprint("Ownership"))
++	if len(o.OwnerRefs) == 0 {
++		fmt.Println("  ownerReferences: none")
++	} else {
++		for _, ref := range o.OwnerRefs {
++			fmt.Printf("  ownerReferences: %s/%s\n", ref.Kind, ref.Name)
++		}
++	}
++
++	fmt.Printf("\n%s\n", color.New(color.Bold).Sprint("Referenced By"))
++	if len(res.ReferencedBy) == 0 {
++		fmt.Println("  not referenced by any scanned resource")
++	} else {
++		for _, r := range res.ReferencedBy {
++			fmt.Printf("  %s\n", r)
++		}
++	}
++
++	fmt.Printf("\n%s\n", color.New(color.Bold).Sprint("Finalizers"))
++	if len(o.Finalizers) == 0 {
++		fmt.Println("  none")
++	} else {
++		fmt.Println("  " + strings.Join(o.Finalizers, ", "))
++	}
++	fmt.Println()
++}
++
++func printEntryList(title string, entries []diag.InventoryEntry, ns string) {
++	if outputFmt == "json" {
++		b, _ := json.MarshalIndent(entries, "", "  ")
++		fmt.Println(string(b))
++		return
++	}
++
++	nsLabel := ns
++	if nsLabel == "" {
++		nsLabel = "all"
++	}
++	fmt.Printf("\n%s  ns=%s  %s\n", color.New(color.Bold).Sprint(title), nsLabel,
++		color.HiBlackString("%d found", len(entries)))
++	fmt.Println(color.HiBlackString(strings.Repeat("─", 64)))
++
++	if len(entries) == 0 {
++		fmt.Println("\n  none  ✓\n")
++		return
++	}
++
++	for _, e := range entries {
++		fmt.Printf("\n%s/%s\n", strings.ToLower(e.Obj.Kind), color.New(color.Bold).Sprint(e.Obj.Name))
++		if e.Obj.Namespace != "" {
++			fmt.Printf("  ns   %s\n", color.HiBlackString(e.Obj.Namespace))
++		}
++		for _, r := range e.Class.Reasons {
++			fmt.Printf("  •    %s\n", color.HiBlackString(r))
++		}
++	}
++	fmt.Println()
++}
++
++func formatDuration(d time.Duration) string {
++	if d <= 0 {
++		return "0s"
++	}
++	days := int(d.Hours()) / 24
++	if days > 0 {
++		return fmt.Sprintf("%dd", days)
++	}
++	hours := int(d.Hours())
++	if hours > 0 {
++		return fmt.Sprintf("%dh", hours)
++	}
++	return fmt.Sprintf("%dm", int(d.Minutes()))
++}
++
++func init() {
++	inventoryCmd.Flags().BoolVarP(&invAllNamespaces, "all-namespaces", "A", false, "scan all namespaces")
++	inventoryCmd.Flags().StringVar(&invAPIGroups, "api-groups", "", "comma-separated API groups to include")
++	inventoryCmd.Flags().StringVar(&invExcludeAPIGroups, "exclude-api-groups", "", "comma-separated API groups to exclude")
++	inventoryCmd.Flags().StringVar(&invResources, "resources", "", "comma-separated resource names to include")
++	inventoryCmd.Flags().StringVar(&invExcludeResources, "exclude-resources", "", "comma-separated resource names to exclude")
++	inventoryCmd.Flags().StringVarP(&invSelector, "selector", "l", "", "label selector")
++	inventoryCmd.Flags().BoolVar(&invIncludeEvents, "include-events", false, "include Events (excluded by default)")
++	inventoryCmd.Flags().BoolVar(&invIncludeNoisy, "include-noisy", false, "include all noise-profile excluded resources")
++
++	// share the same flags with subcommands
++	for _, c := range []*cobra.Command{explainCmd, orphansCmd, stuckCmd} {
++		c.Flags().AddFlagSet(inventoryCmd.Flags())
++	}
++
++	inventoryCmd.AddCommand(explainCmd, orphansCmd, stuckCmd)
++	rootCmd.AddCommand(inventoryCmd)
++}
+diff --git a/cmd/root.go b/cmd/root.go
+index 3261435..8b13295 100644
+--- a/cmd/root.go
++++ b/cmd/root.go
+@@ -33,6 +33,9 @@ Examples:
+   k8s-doctor diff --window 1h
+   k8s-doctor audit --window 2h
+   k8s-doctor serve --port 8080
++  k8s-doctor inventory -n production
++  k8s-doctor inventory orphans -n production
++  k8s-doctor inventory explain secret/my-secret -n production
+ 
+   # switch clusters on the fly
+   k8s-doctor triage --cluster prod-us-east-1
+diff --git a/internal/diag/engine.go b/internal/diag/engine.go
+index d3435f1..d693d48 100644
+--- a/internal/diag/engine.go
++++ b/internal/diag/engine.go
+@@ -9,7 +9,10 @@ import (
+ 
+ 	corev1 "k8s.io/api/core/v1"
+ 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
++	"k8s.io/client-go/discovery"
++	"k8s.io/client-go/dynamic"
+ 	"k8s.io/client-go/kubernetes"
++	"k8s.io/client-go/rest"
+ 	"k8s.io/client-go/tools/clientcmd"
+ )
+ 
+@@ -55,6 +58,9 @@ type Engine struct {
+ 	namespace string
+ 	verbose   bool
+ 	k8s       kubernetes.Interface
++	dyn       dynamic.Interface
++	disc      discovery.DiscoveryInterface
++	restCfg   *rest.Config
+ }
+ 
+ func NewEngine(ctx context.Context, namespace string, verbose bool) (*Engine, error) {
+@@ -69,7 +75,18 @@ func NewEngine(ctx context.Context, namespace string, verbose bool) (*Engine, er
+ 	if err != nil {
+ 		return nil, fmt.Errorf("could not create k8s client: %w", err)
+ 	}
+-	return &Engine{ctx: ctx, namespace: namespace, verbose: verbose, k8s: k8sClient}, nil
++	dynClient, err := dynamic.NewForConfig(restCfg)
++	if err != nil {
++		return nil, fmt.Errorf("could not create dynamic client: %w", err)
++	}
++	discClient, err := discovery.NewDiscoveryClientForConfig(restCfg)
++	if err != nil {
++		return nil, fmt.Errorf("could not create discovery client: %w", err)
++	}
++	return &Engine{
++		ctx: ctx, namespace: namespace, verbose: verbose,
++		k8s: k8sClient, dyn: dynClient, disc: discClient, restCfg: restCfg,
++	}, nil
+ }
+ 
+ func (e *Engine) ns() string {
+diff --git a/internal/diag/inventory.go b/internal/diag/inventory.go
+new file mode 100644
+index 0000000..6416fe0
+--- /dev/null
++++ b/internal/diag/inventory.go
+@@ -0,0 +1,587 @@
++package diag
++
++import (
++	"fmt"
++	"sort"
++	"strings"
++	"time"
++
++	corev1 "k8s.io/api/core/v1"
++	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
++	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
++	"k8s.io/apimachinery/pkg/runtime/schema"
++	"k8s.io/client-go/discovery"
++)
++
++// ─────────────────────────────────────────────────────────────
++// Noise profile — excluded by default, same spirit as kubectl-inventory
++// ─────────────────────────────────────────────────────────────
++
++var defaultExcludedGroups = map[string]bool{
++	"metrics.k8s.io":      true,
++	"coordination.k8s.io": true, // leases
++}
++
++var defaultExcludedResources = map[string]bool{
++	"events":                    true,
++	"componentstatuses":         true,
++	"bindings":                  true,
++	"localsubjectaccessreviews": true,
++	"selfsubjectaccessreviews":  true,
++	"selfsubjectrulesreviews":   true,
++	"subjectaccessreviews":      true,
++	"tokenreviews":              true,
++}
++
++// gitops signals we recognize on any object
++var gitopsLabelKeys = []string{
++	"argocd.argoproj.io/instance",
++	"kustomize.toolkit.fluxcd.io/name",
++	"helm.toolkit.fluxcd.io/name",
++}
++
++var gitopsAnnotationKeys = []string{
++	"meta.helm.sh/release-name",
++	"argocd.argoproj.io/tracking-id",
++}
++
++var gitopsManagers = map[string]bool{
++	"argocd-application-controller": true,
++	"helm":                          true,
++	"kustomize-controller":          true,
++	"helm-controller":               true,
++	"flux":                          true,
++}
++
++// ─────────────────────────────────────────────────────────────
++// Types
++// ─────────────────────────────────────────────────────────────
++
++type InventoryOptions struct {
++	Namespace        string
++	AllNamespaces    bool
++	APIGroups        []string
++	ExcludeAPIGroups []string
++	Resources        []string
++	ExcludeResources []string
++	IncludeEvents    bool
++	IncludeNoisy     bool
++	Selector         string
++	AgeFilter        time.Duration // 0 = no filter; only used by orphans/stuck listing
++}
++
++type ResourceCount struct {
++	Kind       string `json:"kind"`
++	Count      int    `json:"count"`
++	Suspicious int    `json:"suspicious,omitempty"`
++}
++
++type GroupSummary struct {
++	Group     string           `json:"group"` // "" = core
++	Resources []ResourceCount  `json:"resources"`
++}
++
++type ObjectRef struct {
++	GVR               schema.GroupVersionResource `json:"-"`
++	Kind              string                      `json:"kind"`
++	Name              string                      `json:"name"`
++	Namespace         string                      `json:"namespace,omitempty"`
++	UID               string                      `json:"uid,omitempty"`
++	Age               time.Duration               `json:"-"`
++	CreatedAt         time.Time                   `json:"createdAt,omitempty"`
++	Manager           string                      `json:"manager,omitempty"`
++	OwnerRefs         []metav1.OwnerReference     `json:"ownerReferences,omitempty"`
++	Labels            map[string]string           `json:"labels,omitempty"`
++	Annotations       map[string]string           `json:"annotations,omitempty"`
++	DeletionTimestamp *time.Time                  `json:"deletionTimestamp,omitempty"`
++	Finalizers        []string                    `json:"finalizers,omitempty"`
++}
++
++type Classification struct {
++	Status  string   `json:"status"` // OK | GITOPS | SUSPICIOUS | STUCK
++	Reasons []string `json:"reasons,omitempty"`
++}
++
++type InventoryEntry struct {
++	Obj   ObjectRef      `json:"object"`
++	Class Classification `json:"classification"`
++}
++
++type InventoryReport struct {
++	Namespace      string           `json:"namespace"`
++	Groups         []GroupSummary   `json:"groups"`
++	Entries        []InventoryEntry `json:"-"`
++	Stuck          []InventoryEntry `json:"stuck"`
++	Suspicious     []InventoryEntry `json:"suspicious"`
++	TotalResources int              `json:"totalResources"`
++	ScannedTypes   int              `json:"scannedTypes"`
++	SkippedTypes   int              `json:"skippedTypes"`
++	Duration       time.Duration    `json:"-"`
++}
++
++// ─────────────────────────────────────────────────────────────
++// Resource discovery
++// ─────────────────────────────────────────────────────────────
++
++func (e *Engine) discoverResources(opts InventoryOptions) ([]schema.GroupVersionResource, map[schema.GroupVersionResource]bool, int, error) {
++	lists, err := e.disc.ServerPreferredResources()
++	if err != nil && !discovery.IsGroupDiscoveryFailedError(err) {
++		return nil, nil, 0, fmt.Errorf("discovery failed: %w", err)
++	}
++
++	var gvrs []schema.GroupVersionResource
++	namespaced := map[schema.GroupVersionResource]bool{}
++	skipped := 0
++
++	for _, list := range lists {
++		if list == nil {
++			continue
++		}
++		gv, perr := schema.ParseGroupVersion(list.GroupVersion)
++		if perr != nil {
++			continue
++		}
++		for _, r := range list.APIResources {
++			if strings.Contains(r.Name, "/") {
++				continue // subresource, e.g. pods/log
++			}
++			if !hasVerb(r.Verbs, "list") {
++				skipped++
++				continue
++			}
++			if !opts.IncludeNoisy {
++				if defaultExcludedGroups[gv.Group] {
++					skipped++
++					continue
++				}
++				if defaultExcludedResources[r.Name] {
++					skipped++
++					continue
++				}
++				if !opts.IncludeEvents && r.Name == "events" {
++					skipped++
++					continue
++				}
++			}
++			if len(opts.APIGroups) > 0 && !inList(gv.Group, opts.APIGroups) {
++				continue
++			}
++			if inList(gv.Group, opts.ExcludeAPIGroups) {
++				continue
++			}
++			if len(opts.Resources) > 0 && !inList(r.Name, opts.Resources) {
++				continue
++			}
++			if inList(r.Name, opts.ExcludeResources) {
++				continue
++			}
++			gvr := gv.WithResource(r.Name)
++			gvrs = append(gvrs, gvr)
++			namespaced[gvr] = r.Namespaced
++		}
++	}
++	return gvrs, namespaced, skipped, nil
++}
++
++// resolveGVR maps a kind/shortname/plural argument (e.g. "pod", "secret", "cm") to a GVR.
++func (e *Engine) resolveGVR(kindArg string) (schema.GroupVersionResource, bool, error) {
++	lists, err := e.disc.ServerPreferredResources()
++	if err != nil && !discovery.IsGroupDiscoveryFailedError(err) {
++		return schema.GroupVersionResource{}, false, fmt.Errorf("discovery failed: %w", err)
++	}
++	target := strings.ToLower(kindArg)
++	for _, list := range lists {
++		if list == nil {
++			continue
++		}
++		gv, perr := schema.ParseGroupVersion(list.GroupVersion)
++		if perr != nil {
++			continue
++		}
++		for _, r := range list.APIResources {
++			if strings.Contains(r.Name, "/") {
++				continue
++			}
++			if strings.ToLower(r.Name) == target ||
++				strings.ToLower(r.Kind) == target ||
++				strings.ToLower(r.SingularName) == target {
++				return gv.WithResource(r.Name), r.Namespaced, nil
++			}
++			for _, sn := range r.ShortNames {
++				if strings.ToLower(sn) == target {
++					return gv.WithResource(r.Name), r.Namespaced, nil
++				}
++			}
++		}
++	}
++	return schema.GroupVersionResource{}, false, fmt.Errorf("unknown resource kind %q", kindArg)
++}
++
++// ─────────────────────────────────────────────────────────────
++// Scan
++// ─────────────────────────────────────────────────────────────
++
++func (e *Engine) ScanNamespace(opts InventoryOptions) (*InventoryReport, error) {
++	start := time.Now()
++	gvrs, namespaced, skipped, err := e.discoverResources(opts)
++	if err != nil {
++		return nil, err
++	}
++
++	report := &InventoryReport{Namespace: opts.Namespace}
++	groupMap := map[string]map[string]*ResourceCount{}
++
++	var listOpts metav1.ListOptions
++	if opts.Selector != "" {
++		listOpts.LabelSelector = opts.Selector
++	}
++
++	for _, gvr := range gvrs {
++		nsed := namespaced[gvr]
++
++		// A namespace was requested but this resource is cluster-scoped: skip,
++		// unless the user asked for all-namespaces scope.
++		if !nsed && opts.Namespace != "" && !opts.AllNamespaces {
++			continue
++		}
++
++		var list *unstructured.UnstructuredList
++		var lerr error
++		if nsed {
++			ns := opts.Namespace
++			if opts.AllNamespaces {
++				ns = metav1.NamespaceAll
++			}
++			list, lerr = e.dyn.Resource(gvr).Namespace(ns).List(e.ctx, listOpts)
++		} else {
++			list, lerr = e.dyn.Resource(gvr).List(e.ctx, listOpts)
++		}
++		if lerr != nil {
++			report.SkippedTypes++
++			continue
++		}
++		if len(list.Items) == 0 {
++			continue
++		}
++		report.ScannedTypes++
++
++		group := gvr.Group
++		if _, ok := groupMap[group]; !ok {
++			groupMap[group] = map[string]*ResourceCount{}
++		}
++
++		for i := range list.Items {
++			item := &list.Items[i]
++			obj := toObjectRef(gvr, item)
++			class := classify(obj)
++
++			entry := InventoryEntry{Obj: obj, Class: class}
++			report.Entries = append(report.Entries, entry)
++			report.TotalResources++
++
++			kindKey := item.GetKind()
++			if kindKey == "" {
++				kindKey = gvr.Resource
++			}
++			rc, ok := groupMap[group][kindKey]
++			if !ok {
++				rc = &ResourceCount{Kind: kindKey}
++				groupMap[group][kindKey] = rc
++			}
++			rc.Count++
++
++			switch class.Status {
++			case "SUSPICIOUS":
++				rc.Suspicious++
++				report.Suspicious = append(report.Suspicious, entry)
++			case "STUCK":
++				report.Stuck = append(report.Stuck, entry)
++			}
++		}
++	}
++	report.SkippedTypes += skipped
++
++	var groupNames []string
++	for g := range groupMap {
++		groupNames = append(groupNames, g)
++	}
++	sort.Slice(groupNames, func(i, j int) bool {
++		if groupNames[i] == "" {
++			return true
++		}
++		if groupNames[j] == "" {
++			return false
++		}
++		return groupNames[i] < groupNames[j]
++	})
++	for _, g := range groupNames {
++		var rcs []ResourceCount
++		for _, rc := range groupMap[g] {
++			rcs = append(rcs, *rc)
++		}
++		sort.Slice(rcs, func(i, j int) bool { return rcs[i].Kind < rcs[j].Kind })
++		report.Groups = append(report.Groups, GroupSummary{Group: g, Resources: rcs})
++	}
++
++	report.Duration = time.Since(start)
++	return report, nil
++}
++
++// ─────────────────────────────────────────────────────────────
++// Explain a single resource
++// ─────────────────────────────────────────────────────────────
++
++type ExplainResult struct {
++	Entry        InventoryEntry
++	ReferencedBy []string
++}
++
++func (e *Engine) ExplainResource(kindArg, name, namespace string) (*ExplainResult, error) {
++	gvr, namespacedRes, err := e.resolveGVR(kindArg)
++	if err != nil {
++		return nil, err
++	}
++
++	var item *unstructured.Unstructured
++	if namespacedRes {
++		if namespace == "" {
++			namespace = "default"
++		}
++		item, err = e.dyn.Resource(gvr).Namespace(namespace).Get(e.ctx, name, metav1.GetOptions{})
++	} else {
++		item, err = e.dyn.Resource(gvr).Get(e.ctx, name, metav1.GetOptions{})
++	}
++	if err != nil {
++		return nil, fmt.Errorf("%s/%s not found in ns %s: %w", kindArg, name, namespace, err)
++	}
++
++	obj := toObjectRef(gvr, item)
++	class := classify(obj)
++
++	var refs []string
++	switch strings.ToLower(item.GetKind()) {
++	case "configmap":
++		refs = e.findReferencingPods(namespace, "configmap", name)
++	case "secret":
++		refs = e.findReferencingPods(namespace, "secret", name)
++	case "service":
++		refs = e.findReferencingIngresses(namespace, name)
++	}
++
++	return &ExplainResult{Entry: InventoryEntry{Obj: obj, Class: class}, ReferencedBy: refs}, nil
++}
++
++// ─────────────────────────────────────────────────────────────
++// Classification logic
++// ─────────────────────────────────────────────────────────────
++
++func classify(obj ObjectRef) Classification {
++	// stuck takes priority over everything else
++	if obj.DeletionTimestamp != nil && len(obj.Finalizers) > 0 {
++		age := time.Since(*obj.DeletionTimestamp)
++		if age > 2*time.Minute {
++			return Classification{
++				Status: "STUCK",
++				Reasons: []string{
++					fmt.Sprintf("deletionTimestamp set %s ago", age.Round(time.Second)),
++					fmt.Sprintf("blocked by finalizers: %s", strings.Join(obj.Finalizers, ", ")),
++				},
++			}
++		}
++	}
++
++	var reasons []string
++	gitops := false
++
++	for _, k := range gitopsLabelKeys {
++		if v := obj.Labels[k]; v != "" {
++			gitops = true
++			reasons = append(reasons, fmt.Sprintf("gitops label %s=%s", k, v))
++			break
++		}
++	}
++	if !gitops {
++		for _, k := range gitopsAnnotationKeys {
++			if v := obj.Annotations[k]; v != "" {
++				gitops = true
++				reasons = append(reasons, fmt.Sprintf("gitops annotation %s=%s", k, v))
++				break
++			}
++		}
++	}
++	if !gitops && gitopsManagers[obj.Manager] {
++		gitops = true
++		reasons = append(reasons, "managed by "+obj.Manager)
++	}
++	// app.kubernetes.io/managed-by=Helm is a strong signal too
++	if !gitops && strings.EqualFold(obj.Labels["app.kubernetes.io/managed-by"], "Helm") {
++		gitops = true
++		reasons = append(reasons, "label app.kubernetes.io/managed-by=Helm")
++	}
++
++	hasOwner := len(obj.OwnerRefs) > 0
++
++	if hasOwner || gitops {
++		status := "OK"
++		if gitops && !hasOwner {
++			status = "GITOPS"
++		}
++		return Classification{Status: status, Reasons: reasons}
++	}
++
++	r := []string{"no ownerReferences", "no known GitOps/controller metadata detected"}
++	if obj.Manager != "" {
++		r = append(r, fmt.Sprintf("created/managed by: %s", obj.Manager))
++	}
++	r = append(r, fmt.Sprintf("age: %s", formatAge(obj.Age)))
++	return Classification{Status: "SUSPICIOUS", Reasons: r}
++}
++
++// ─────────────────────────────────────────────────────────────
++// Lightweight reference graph — pods -> configmap/secret, ingress -> service
++// ─────────────────────────────────────────────────────────────
++
++func (e *Engine) findReferencingPods(namespace, kind, name string) []string {
++	pods, err := e.k8s.CoreV1().Pods(namespace).List(e.ctx, metav1.ListOptions{})
++	if err != nil {
++		return nil
++	}
++	var refs []string
++	for _, pod := range pods.Items {
++		if podReferences(&pod, kind, name) {
++			refs = append(refs, "pod/"+pod.Name)
++		}
++	}
++	return refs
++}
++
++func podReferences(pod *corev1.Pod, kind, name string) bool {
++	check := func(cs []corev1.Container) bool {
++		for _, c := range cs {
++			for _, ef := range c.EnvFrom {
++				if kind == "configmap" && ef.ConfigMapRef != nil && ef.ConfigMapRef.Name == name {
++					return true
++				}
++				if kind == "secret" && ef.SecretRef != nil && ef.SecretRef.Name == name {
++					return true
++				}
++			}
++			for _, ev := range c.Env {
++				if ev.ValueFrom == nil {
++					continue
++				}
++				if kind == "configmap" && ev.ValueFrom.ConfigMapKeyRef != nil && ev.ValueFrom.ConfigMapKeyRef.Name == name {
++					return true
++				}
++				if kind == "secret" && ev.ValueFrom.SecretKeyRef != nil && ev.ValueFrom.SecretKeyRef.Name == name {
++					return true
++				}
++			}
++		}
++		return false
++	}
++	if check(pod.Spec.Containers) || check(pod.Spec.InitContainers) {
++		return true
++	}
++	for _, v := range pod.Spec.Volumes {
++		if kind == "configmap" && v.ConfigMap != nil && v.ConfigMap.Name == name {
++			return true
++		}
++		if kind == "secret" && v.Secret != nil && v.Secret.SecretName == name {
++			return true
++		}
++	}
++	return false
++}
++
++func (e *Engine) findReferencingIngresses(namespace, svcName string) []string {
++	ings, err := e.k8s.NetworkingV1().Ingresses(namespace).List(e.ctx, metav1.ListOptions{})
++	if err != nil {
++		return nil
++	}
++	var refs []string
++	for _, ing := range ings.Items {
++		if ing.Spec.DefaultBackend != nil && ing.Spec.DefaultBackend.Service != nil &&
++			ing.Spec.DefaultBackend.Service.Name == svcName {
++			refs = append(refs, "ingress/"+ing.Name)
++			continue
++		}
++		for _, rule := range ing.Spec.Rules {
++			if rule.HTTP == nil {
++				continue
++			}
++			for _, p := range rule.HTTP.Paths {
++				if p.Backend.Service != nil && p.Backend.Service.Name == svcName {
++					refs = append(refs, "ingress/"+ing.Name)
++				}
++			}
++		}
++	}
++	return refs
++}
++
++// ─────────────────────────────────────────────────────────────
++// Helpers
++// ─────────────────────────────────────────────────────────────
++
++func toObjectRef(gvr schema.GroupVersionResource, item *unstructured.Unstructured) ObjectRef {
++	obj := ObjectRef{
++		GVR:         gvr,
++		Kind:        item.GetKind(),
++		Name:        item.GetName(),
++		Namespace:   item.GetNamespace(),
++		UID:         string(item.GetUID()),
++		OwnerRefs:   item.GetOwnerReferences(),
++		Labels:      item.GetLabels(),
++		Annotations: item.GetAnnotations(),
++		Finalizers:  item.GetFinalizers(),
++	}
++	if ts := item.GetCreationTimestamp(); !ts.IsZero() {
++		obj.CreatedAt = ts.Time
++		obj.Age = time.Since(ts.Time)
++	}
++	if dt := item.GetDeletionTimestamp(); dt != nil {
++		t := dt.Time
++		obj.DeletionTimestamp = &t
++	}
++	if fields := item.GetManagedFields(); len(fields) > 0 {
++		obj.Manager = fields[len(fields)-1].Manager
++	}
++	if obj.Kind == "" {
++		obj.Kind = gvr.Resource
++	}
++	return obj
++}
++
++func hasVerb(verbs metav1.Verbs, v string) bool {
++	for _, x := range verbs {
++		if x == v {
++			return true
++		}
++	}
++	return false
++}
++
++func inList(s string, list []string) bool {
++	for _, x := range list {
++		if x == s {
++			return true
++		}
++	}
++	return false
++}
++
++func formatAge(d time.Duration) string {
++	if d <= 0 {
++		return "0s"
++	}
++	days := int(d.Hours()) / 24
++	if days > 0 {
++		return fmt.Sprintf("%dd", days)
++	}
++	hours := int(d.Hours())
++	if hours > 0 {
++		return fmt.Sprintf("%dh", hours)
++	}
++	return fmt.Sprintf("%dm", int(d.Minutes()))
++}

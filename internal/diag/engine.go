@@ -9,7 +9,10 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/discovery"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 )
 
@@ -55,6 +58,9 @@ type Engine struct {
 	namespace string
 	verbose   bool
 	k8s       kubernetes.Interface
+	dyn       dynamic.Interface
+	disc      discovery.DiscoveryInterface
+	restCfg   *rest.Config
 }
 
 func NewEngine(ctx context.Context, namespace string, verbose bool) (*Engine, error) {
@@ -69,7 +75,18 @@ func NewEngine(ctx context.Context, namespace string, verbose bool) (*Engine, er
 	if err != nil {
 		return nil, fmt.Errorf("could not create k8s client: %w", err)
 	}
-	return &Engine{ctx: ctx, namespace: namespace, verbose: verbose, k8s: k8sClient}, nil
+	dynClient, err := dynamic.NewForConfig(restCfg)
+	if err != nil {
+		return nil, fmt.Errorf("could not create dynamic client: %w", err)
+	}
+	discClient, err := discovery.NewDiscoveryClientForConfig(restCfg)
+	if err != nil {
+		return nil, fmt.Errorf("could not create discovery client: %w", err)
+	}
+	return &Engine{
+		ctx: ctx, namespace: namespace, verbose: verbose,
+		k8s: k8sClient, dyn: dynClient, disc: discClient, restCfg: restCfg,
+	}, nil
 }
 
 func (e *Engine) ns() string {
