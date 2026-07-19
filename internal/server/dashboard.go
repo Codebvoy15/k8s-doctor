@@ -157,6 +157,7 @@ tr:last-child td{border-bottom:none}
     <button class="nb" onclick="setV('changes',this)">Changes <span class="nc a" id="nc-diff" style="display:none">0</span></button>
     <button class="nb" onclick="setV('events',this)">Events <span class="nc r" id="nc-warn" style="display:none">0</span></button>
     <button class="nb" onclick="setV('risks',this)">Risks <span class="nc r" id="nc-risk" style="display:none">0</span></button>
+    <button class="nb" onclick="setV('inventory',this)">Inventory <span class="nc a" id="nc-inv" style="display:none">0</span></button>
   </nav>
   <div class="tright">
     <div class="hbadge ok" id="hb"><span class="ldot ok" id="ld"></span><span id="ht">—</span></div>
@@ -218,6 +219,7 @@ function renderMain(){
   else if(V==='changes')h+=chView();
   else if(V==='events')h+=evView();
   else if(V==='risks')h+=rkView();
+  else if(V==='inventory')h+=invView();
   $('main').innerHTML=h;
 }
 function st(lbl,val,col,sub,v){return '<div class="stat '+col+(V===v?' on':'')+'" onclick="setV(\''+v+'\',null)"><div class="slbl">'+lbl+'</div><div class="sval '+col+'">'+val+'</div><div class="ssub">'+sub+'</div></div>'}
@@ -381,6 +383,68 @@ function buildEvents(evts){
   });
   return h+'</tbody></table></div>';
 }
+async function loadInventory(ns){
+  S.invLoading=true;S.invErr=null;renderMain();
+  try{
+    const rep=await api('/api/inventory?ns='+encodeURIComponent(ns||'*'));
+    S.inv=rep;S.invNs=ns;
+  }catch(e){S.invErr=e.message}
+  S.invLoading=false;renderMain();
+  const n=(S.inv?.suspicious?.length||0)+(S.inv?.stuck?.length||0);
+  const e=$('nc-inv');if(e){if(n>0){e.textContent=n;e.className='nc a';e.style.display='inline'}else e.style.display='none'}
+}
+function invScanBar(){
+  return '<div class="fbar"><input id="invnsin" placeholder="namespace (blank = all namespaces)" value="'+esc(S.invNs||'')+'" onkeydown="if(event.key===\'Enter\')invScan()" /><button class="btn" onclick="invScan()">Scan</button></div>';
+}
+function invScan(){const v=$('invnsin').value.trim();loadInventory(v)}
+function invStat(lbl,val,col,sub){return '<div class="stat '+col+'"><div class="slbl">'+esc(lbl)+'</div><div class="sval '+col+'">'+val+'</div><div class="ssub">'+esc(sub)+'</div></div>'}
+function invView(){
+  if(S.invLoading)return invScanBar()+'<div class="swrap"><div class="spin"></div>Scanning namespace'+(S.invNs?': '+esc(S.invNs):'s (all — can take 30s+)')+'...</div>';
+  if(S.invErr)return invScanBar()+'<div style="padding:20px;color:var(--red)">Error: '+esc(S.invErr)+'</div>';
+  if(!S.inv){loadInventory(S.invNs||'');return invScanBar()+'<div class="swrap"><div class="spin"></div>Starting scan...</div>';}
+  const r=S.inv;
+  const susp=r.suspicious||[],stuck=r.stuck||[];
+  const owned=r.totalResources-susp.length-stuck.length;
+  let h=invScanBar();
+  h+='<div class="stats">';
+  h+=invStat('Total resources',r.totalResources,'b',r.scannedTypes+' types scanned · '+r.skippedTypes+' skipped (noise profile)');
+  h+=invStat('Owned / GitOps',owned,'g','has ownerReference or known GitOps signal');
+  h+=invStat('Suspicious',susp.length,susp.length>0?'a':'g','no owner, no GitOps signal — investigate');
+  h+=invStat('Stuck',stuck.length,stuck.length>0?'r':'g','finalizer-blocked > 2m');
+  h+='</div>';
+  h+='<div style="font-size:11px;color:var(--t3);margin-bottom:12px">ns='+esc(r.namespace||'all')+' · scanned in '+((r.durationMs||0)/1000).toFixed(1)+'s</div>';
+  h+=sec('sig','Resource groups',bdg((r.groups||[]).length+' groups','n'),buildInvGroups(r.groups||[]),true);
+  h+=sec('sis','Suspicious resources',bdg(susp.length,susp.length>0?'a':'g'),buildInvEntries(susp,'a'),susp.length>0);
+  h+=sec('ist','Stuck resources',bdg(stuck.length,stuck.length>0?'r':'g'),buildInvEntries(stuck,'r'),stuck.length>0);
+  return h;
+}
+function buildInvGroups(groups){
+  if(!groups.length)return '<div class="empty">No resources found</div>';
+  let h='<div class="tw"><table><colgroup><col style="width:170px"><col><col style="width:70px"><col style="width:100px"></colgroup>';
+  h+='<thead><tr><th>API group</th><th>Kind</th><th>Count</th><th>Suspicious</th></tr></thead><tbody>';
+  groups.forEach(g=>{
+    const label=g.group||'core';
+    (g.resources||[]).forEach((rc,i)=>{
+      h+='<tr class="tr"><td style="color:var(--t2)">'+(i===0?esc(label):'')+'</td><td style="font-weight:500">'+esc(rc.kind)+'</td><td>'+rc.count+'</td><td>'+(rc.suspicious>0?bdg(rc.suspicious,'a'):'—')+'</td></tr>';
+    });
+  });
+  return h+'</tbody></table></div>';
+}
+function buildInvEntries(entries,col){
+  if(!entries.length)return '<div class="empty"><div class="ei">✓</div>None found</div>';
+  const uid='iv'+rnd();
+  let h='<div class="fbar"><input placeholder="Filter..." oninput="filt(this,\''+uid+'\')" /></div>';
+  h+='<div class="tw"><table><colgroup><col><col style="width:130px"><col style="width:100px"></colgroup>';
+  h+='<thead><tr><th>Resource</th><th>Namespace</th><th>Status</th></tr></thead><tbody id="'+uid+'">';
+  entries.forEach((e,i)=>{
+    const o=e.object||{},c=e.classification||{},rid='ivr'+i+uid;
+    h+='<tr class="tr" onclick="togR(\''+rid+'\',this)"><td style="font-weight:500">'+esc((o.kind||'').toLowerCase())+'/'+esc(tr(o.name,32))+'</td><td style="color:var(--t2)">'+esc(o.namespace||'—')+'</td><td>'+bdg(c.status,col)+'</td></tr>';
+    h+='<tr id="'+rid+'" class="exr" style="display:none"><td colspan="3"><div class="exin">';
+    (c.reasons||[]).forEach(rs=>{h+='<div style="font-size:12px;color:var(--t2);margin-bottom:4px">• '+esc(rs)+'</div>'});
+    h+='</div></td></tr>';
+  });
+  return h+'</tbody></table></div>';
+}
 function renderDrawer(){
   const nodes=S.snap?.Nodes||[];
   const warns=(S.events||[]).filter(e=>e.Type==='Warning').slice(0,20);
@@ -406,7 +470,7 @@ function togDrawer(){$('drawer').classList.toggle('col')}
 function filt(inp,tbid){const q=inp.value.toLowerCase();const tb=$(tbid);if(!tb)return;tb.querySelectorAll('tr:not(.exr)').forEach(r=>{r.style.display=r.textContent.toLowerCase().includes(q)?'':'none';const nx=r.nextElementSibling;if(nx&&nx.classList.contains('exr'))nx.style.display='none'})}
 function filtS(sel,tbid,cls){const v=sel.value;const tb=$(tbid);if(!tb)return;tb.querySelectorAll('tr:not(.exr)').forEach(r=>{r.style.display=(!v||r.classList.contains(cls))?'':'none'})}
 function ditab(el,pid){const wrap=el.closest('[id^=main],[id^=sec],[class*=sec]')||$('main');wrap.querySelectorAll('.ditab').forEach(t=>t.classList.remove('on'));wrap.querySelectorAll('.dipane').forEach(p=>p.classList.remove('on'));el.classList.add('on');const p=$(pid);if(p)p.classList.add('on')}
-function setV(v,el){V=v;document.querySelectorAll('.nb').forEach(b=>b.classList.remove('on'));if(el)el.classList.add('on');else{const vs=['overview','workloads','changes','events','risks'];document.querySelectorAll('.nb').forEach((b,i)=>{if(vs[i]===v)b.classList.add('on')})}renderMain()}
+function setV(v,el){V=v;document.querySelectorAll('.nb').forEach(b=>b.classList.remove('on'));if(el)el.classList.add('on');else{const vs=['overview','workloads','changes','events','risks','inventory'];document.querySelectorAll('.nb').forEach((b,i)=>{if(vs[i]===v)b.classList.add('on')})}renderMain()}
 function cp(txt){navigator.clipboard.writeText(txt).then(()=>toast('Copied!')).catch(()=>toast('Failed'))}
 function toast(msg){const t=$('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2000)}
 loadAll(false);

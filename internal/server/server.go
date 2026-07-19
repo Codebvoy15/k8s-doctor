@@ -74,6 +74,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/api/audit", s.handleAudit)
 	s.mux.HandleFunc("/api/predict", s.handlePredict)
 	s.mux.HandleFunc("/api/top", s.handleTop)
+	s.mux.HandleFunc("/api/inventory", s.handleInventory)
 	s.mux.HandleFunc("/api/all", s.handleAll)
 }
 
@@ -325,6 +326,32 @@ func (s *Server) handleTop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	jsonOK(w, result)
+}
+
+func (s *Server) handleInventory(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Minute)
+	defer cancel()
+	eng, err := diag.NewEngine(ctx, "", false)
+	if err != nil {
+		jsonError(w, err)
+		return
+	}
+	ns := r.URL.Query().Get("ns")
+	if ns == "*" {
+		ns = ""
+	}
+	opts := diag.InventoryOptions{
+		Namespace:     ns,
+		AllNamespaces: ns == "",
+		IncludeNoisy:  r.URL.Query().Get("includeNoisy") == "1",
+		IncludeEvents: r.URL.Query().Get("includeEvents") == "1",
+	}
+	report, err := eng.ScanNamespace(opts)
+	if err != nil {
+		jsonError(w, err)
+		return
+	}
+	jsonOK(w, report)
 }
 
 func (s *Server) handleAll(w http.ResponseWriter, r *http.Request) {
