@@ -5,7 +5,8 @@
   "detectors": [
     "missing-reference",
     "workload-unavailable",
-    "node-unhealthy"
+    "node-unhealthy",
+    "failed-pods"
   ],
   "coverage": {
     "ConfigMap": true,
@@ -78,8 +79,8 @@
       "detector": "workload-unavailable",
       "cluster": "stage-us-east-1",
       "tier": "IMPACTING",
-      "title": "Deployment payments/api: 2/2 pods unavailable (NotReady)",
-      "summary": "Every pod of deployment api is down. Dominant reason: notready.",
+      "title": "Deployment payments/api: 0/2 ready (NotReady)",
+      "summary": "No replica of deployment api is ready. Dominant reason: pods are not Ready and nothing on the pod explains it (check the node they run on).",
       "subject": {
         "kind": "Deployment",
         "namespace": "payments",
@@ -98,6 +99,7 @@
         }
       ],
       "evidence": [
+        "0/2 ready (from pod count)",
         "api-7d9f8c6b5-abcde [NotReady, node ip-10-0-2-7]: phase=Running, no container or event explains it yet",
         "api-7d9f8c6b5-fghij [NotReady, node ip-10-0-2-7]: phase=Running, no container or event explains it yet",
         "down since about 19d ago"

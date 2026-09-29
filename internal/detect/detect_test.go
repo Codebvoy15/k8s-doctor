@@ -37,7 +37,7 @@ func run(t *testing.T, name string) Report {
 }
 
 func TestGolden(t *testing.T) {
-	for _, name := range []string{"dynatrace-gap", "secrets-forbidden", "shop-stage", "node-notready"} {
+	for _, name := range []string{"dynatrace-gap", "secrets-forbidden", "shop-stage", "node-notready", "real-run-apac"} {
 		t.Run(name, func(t *testing.T) {
 			got, err := json.MarshalIndent(run(t, name), "", "  ")
 			if err != nil {
@@ -230,5 +230,75 @@ func TestCompletedInitContainerIsNotBlamed(t *testing.T) {
 		if strings.Contains(strings.Join(f.Evidence, " "), "init-db") {
 			t.Errorf("completed init container blamed: %v", f.Evidence)
 		}
+	}
+}
+
+// Regression tests from the first real fleet run (2026-09-29).
+func findBySubject(r Report, detector, kind, name string) []Finding {
+	var out []Finding
+	for _, f := range r.Findings {
+		if f.Detector == detector && f.Subject.Kind == kind && f.Subject.Name == name {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// False positive #1: an evicted pod of a Deployment scaled to 0/0 was reported
+// as an IMPACTING outage. Nothing is down; the truth is a LATENT storage-limit problem.
+func TestEvictedTombstoneOfScaledDownDeployment(t *testing.T) {
+	r := run(t, "real-run-apac")
+	if f := findBySubject(r, "workload-unavailable", "Deployment", "reconciler"); len(f) != 0 {
+		t.Fatalf("scaled-to-0 deployment reported as unavailable: %s", f[0].Title)
+	}
+	f := findBySubject(r, "failed-pods", "Deployment", "reconciler")
+	if len(f) != 1 {
+		t.Fatalf("want one failed-pods finding for reconciler, got %d", len(f))
+	}
+	if f[0].Tier != TierLatent {
+		t.Errorf("own emptyDir limit eviction should be LATENT (recurs), got %s", f[0].Tier)
+	}
+	for _, want := range []string{`emptyDir "reconciler-log" exceeded its 1G limit`} {
+		if !strings.Contains(f[0].Title, want) {
+			t.Errorf("title %q should contain %q", f[0].Title, want)
+		}
+	}
+	if !strings.Contains(f[0].Summary, "scaled to 0") {
+		t.Errorf("summary should say it is scaled to 0: %s", f[0].Summary)
+	}
+}
+
+// Understated #2: 915 restarts was reported as "recent OOMKills, down since 2m".
+func TestChronicOOMIsCalledChronic(t *testing.T) {
+	f := findBySubject(run(t, "real-run-apac"), "workload-unavailable", "StatefulSet", "fluentd")
+	if len(f) != 1 {
+		t.Fatalf("want one fluentd finding, got %d", len(f))
+	}
+	if f[0].Tier != TierDegraded || !strings.Contains(f[0].Title, "chronic OOMKills (915 restarts)") {
+		t.Errorf("got [%s] %s", f[0].Tier, f[0].Title)
+	}
+	for _, e := range f[0].Evidence {
+		if strings.Contains(e, "down since") {
+			t.Errorf("a Ready, restarting workload is not 'down': %q", e)
+		}
+	}
+}
+
+func TestControllerStatusDrivesAvailability(t *testing.T) {
+	r := run(t, "real-run-apac")
+	if f := findBySubject(r, "workload-unavailable", "Deployment", "api"); len(f) != 0 {
+		t.Errorf("3/3 ready per controller; a rollout leftover must not alert: %s", f[0].Title)
+	}
+	cart := findBySubject(r, "workload-unavailable", "Deployment", "cart")
+	if len(cart) != 1 || cart[0].Tier != TierDegraded || !strings.Contains(cart[0].Title, "1/2 ready (CrashLoopBackOff)") {
+		t.Errorf("cart: %+v", cart)
+	}
+	worker := findBySubject(r, "workload-unavailable", "Deployment", "worker")
+	if len(worker) != 1 || worker[0].Tier != TierImpacting || !strings.Contains(worker[0].Title, "0/2 ready (NoPods)") {
+		t.Errorf("worker (wants 2, has none): %+v", worker)
+	}
+	evict := findBySubject(r, "failed-pods", "Deployment", "cart")
+	if len(evict) != 1 || evict[0].Tier != TierInfo || !strings.Contains(evict[0].Title, "node was low on memory") {
+		t.Errorf("node-pressure eviction should be INFO with the resource named: %+v", evict)
 	}
 }

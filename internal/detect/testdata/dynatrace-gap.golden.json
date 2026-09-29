@@ -5,7 +5,8 @@
   "detectors": [
     "missing-reference",
     "workload-unavailable",
-    "node-unhealthy"
+    "node-unhealthy",
+    "failed-pods"
   ],
   "coverage": {
     "ConfigMap": true,

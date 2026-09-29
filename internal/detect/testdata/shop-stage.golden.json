@@ -5,7 +5,8 @@
   "detectors": [
     "missing-reference",
     "workload-unavailable",
-    "node-unhealthy"
+    "node-unhealthy",
+    "failed-pods"
   ],
   "coverage": {
     "ConfigMap": true,
@@ -73,8 +74,8 @@
       "detector": "workload-unavailable",
       "cluster": "stage-us-east-1",
       "tier": "IMPACTING",
-      "title": "Deployment shop-stage/web: 1/1 pods unavailable (ReadinessProbe)",
-      "summary": "Every pod of deployment web is down. Dominant reason: readiness probe failing (the pod runs but receives no traffic).",
+      "title": "Deployment shop-stage/web: 0/1 ready (ReadinessProbe)",
+      "summary": "No replica of deployment web is ready. Dominant reason: readiness probe failing (the pod runs but receives no traffic).",
       "subject": {
         "kind": "Deployment",
         "namespace": "shop-stage",
@@ -88,6 +89,7 @@
         }
       ],
       "evidence": [
+        "0/1 ready (from pod count)",
         "web-69d45cd5c9-jktk8 [ReadinessProbe, node ip-10-0-1-5]: x11: Readiness probe failed: HTTP probe failed with statuscode: 502",
         "down since about 1h ago"
       ],
@@ -114,8 +116,8 @@
       "detector": "workload-unavailable",
       "cluster": "stage-us-east-1",
       "tier": "IMPACTING",
-      "title": "StatefulSet shop-stage/elasticsearch1: 1/1 pods unavailable (ImagePull)",
-      "summary": "Every pod of statefulset elasticsearch1 is down. Dominant reason: images cannot be pulled.",
+      "title": "StatefulSet shop-stage/elasticsearch1: 0/1 ready (ImagePull)",
+      "summary": "No replica of statefulset elasticsearch1 is ready. Dominant reason: images cannot be pulled.",
       "subject": {
         "kind": "StatefulSet",
         "namespace": "shop-stage",
@@ -129,6 +131,7 @@
         }
       ],
       "evidence": [
+        "0/1 ready (from pod count)",
         "elasticsearch1-0 [ImagePull, node ip-10-0-1-9]: container elasticsearch cannot pull artifactory.example.com/es:7.17: Back-off pulling image \"artifactory.example.com/es:7.17\"",
         "down since about 1h ago"
       ],

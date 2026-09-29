@@ -23,6 +23,9 @@ const (
 	KindPVC            = "PersistentVolumeClaim"
 	KindServiceAccount = "ServiceAccount"
 	KindEvent          = "Event"
+	KindDeployment     = "Deployment"
+	KindStatefulSet    = "StatefulSet"
+	KindDaemonSet      = "DaemonSet"
 )
 
 type Snapshot struct {
@@ -42,6 +45,21 @@ type Snapshot struct {
 	PVCs            []PVC            `json:"pvcs"`
 	ServiceAccounts []ServiceAccount `json:"service_accounts"`
 	Events          []Event          `json:"events"`
+	// Workloads carry the controller's own view of availability (desired vs
+	// ready). Older snapshots have none; detectors then fall back to pods.
+	Workloads []Workload `json:"workloads,omitempty"`
+}
+
+// Workload is a controller's status: the authority on whether it is available.
+type Workload struct {
+	Kind      string    `json:"kind"` // Deployment | StatefulSet | DaemonSet
+	Namespace string    `json:"namespace"`
+	Name      string    `json:"name"`
+	Desired   int32     `json:"desired"`
+	Ready     int32     `json:"ready"`
+	Available int32     `json:"available"`
+	Updated   int32     `json:"updated"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 type CollectError struct {
@@ -104,6 +122,8 @@ type Pod struct {
 	Name           string      `json:"name"`
 	Node           string      `json:"node,omitempty"`
 	Phase          string      `json:"phase"`
+	Reason         string      `json:"reason,omitempty"`  // status.reason, e.g. Evicted, NodeShutdown
+	Message        string      `json:"message,omitempty"` // status.message, e.g. the eviction cause
 	Ready          bool        `json:"ready"`
 	ServiceAccount string      `json:"service_account,omitempty"`
 	Owner          OwnerRef    `json:"owner,omitempty"`
@@ -157,6 +177,7 @@ type Index struct {
 	sas       map[string]ServiceAccount
 	nodes     map[string]Node
 	podEvents map[string][]Event
+	workloads map[string]Workload
 }
 
 func key(ns, name string) string { return ns + "/" + name }
@@ -166,6 +187,10 @@ func NewIndex(s *Snapshot) *Index {
 		secrets: map[string]bool{}, configs: map[string]bool{},
 		pvcs: map[string]PVC{}, sas: map[string]ServiceAccount{},
 		nodes: map[string]Node{}, podEvents: map[string][]Event{},
+		workloads: map[string]Workload{},
+	}
+	for _, w := range s.Workloads {
+		ix.workloads[w.Kind+"|"+key(w.Namespace, w.Name)] = w
 	}
 	for _, o := range s.Secrets {
 		ix.secrets[key(o.Namespace, o.Name)] = true
@@ -223,6 +248,16 @@ func (ix *Index) Node(name string) (Node, bool) {
 }
 
 func (ix *Index) PodEvents(ns, name string) []Event { return ix.podEvents[key(ns, name)] }
+
+// Workload returns the controller status for a pod's workload. ok=false when
+// that controller kind was not collected (older snapshot, RBAC) or it was not found.
+func (ix *Index) Workload(ns string, ref OwnerRef) (w Workload, ok bool) {
+	if !ix.S.Collected[ref.Kind] {
+		return Workload{}, false
+	}
+	w, ok = ix.workloads[ref.Kind+"|"+key(ns, ref.Name)]
+	return w, ok
+}
 
 // Workload returns a stable workload identity for a pod: Deployment name for
 // ReplicaSet-owned pods (hash suffix stripped), otherwise the owner, otherwise the pod.

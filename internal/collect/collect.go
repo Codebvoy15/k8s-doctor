@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -106,7 +107,7 @@ func Snapshot(ctx context.Context, cfg *rest.Config, cluster string, opt Options
 		Collected:     map[string]bool{},
 		Pods:          []model.Pod{}, Nodes: []model.Node{}, Secrets: []model.NamedObject{},
 		ConfigMaps: []model.NamedObject{}, PVCs: []model.PVC{}, ServiceAccounts: []model.ServiceAccount{},
-		Events: []model.Event{},
+		Events: []model.Event{}, Workloads: []model.Workload{},
 	}
 	ns := opt.Namespace // "" lists across all namespaces
 
@@ -228,7 +229,59 @@ func Snapshot(ctx context.Context, cfg *rest.Config, cluster string, opt Options
 			opts.Continue = l.Continue
 		}
 	})
+	// Controllers are the authority on availability (desired vs ready). Each kind
+	// appends to its own slice; they are merged after wg.Wait() (no shared writes).
+	var deps, stss, dss []model.Workload
+	run(model.KindDeployment, func() error {
+		opts := metav1.ListOptions{Limit: opt.PageSize}
+		for {
+			l, err := cs.AppsV1().Deployments(ns).List(ctx, opts)
+			if err != nil {
+				return err
+			}
+			for i := range l.Items {
+				deps = append(deps, convertDeployment(&l.Items[i]))
+			}
+			if l.Continue == "" {
+				return nil
+			}
+			opts.Continue = l.Continue
+		}
+	})
+	run(model.KindStatefulSet, func() error {
+		opts := metav1.ListOptions{Limit: opt.PageSize}
+		for {
+			l, err := cs.AppsV1().StatefulSets(ns).List(ctx, opts)
+			if err != nil {
+				return err
+			}
+			for i := range l.Items {
+				stss = append(stss, convertStatefulSet(&l.Items[i]))
+			}
+			if l.Continue == "" {
+				return nil
+			}
+			opts.Continue = l.Continue
+		}
+	})
+	run(model.KindDaemonSet, func() error {
+		opts := metav1.ListOptions{Limit: opt.PageSize}
+		for {
+			l, err := cs.AppsV1().DaemonSets(ns).List(ctx, opts)
+			if err != nil {
+				return err
+			}
+			for i := range l.Items {
+				dss = append(dss, convertDaemonSet(&l.Items[i]))
+			}
+			if l.Continue == "" {
+				return nil
+			}
+			opts.Continue = l.Continue
+		}
+	})
 	wg.Wait()
+	s.Workloads = append(append(append(s.Workloads, deps...), stss...), dss...)
 
 	if !s.Collected[model.KindPod] {
 		for _, e := range s.Errors {
@@ -265,8 +318,9 @@ func listNames(ctx context.Context, mc metadata.Interface, resource, ns string, 
 func convertPod(p *corev1.Pod) model.Pod {
 	mp := model.Pod{
 		Namespace: p.Namespace, Name: p.Name, Node: p.Spec.NodeName,
-		Phase: string(p.Status.Phase), ServiceAccount: p.Spec.ServiceAccountName,
-		CreatedAt: p.CreationTimestamp.Time.UTC(),
+		Phase: string(p.Status.Phase), Reason: p.Status.Reason, Message: p.Status.Message,
+		ServiceAccount: p.Spec.ServiceAccountName,
+		CreatedAt:      p.CreationTimestamp.Time.UTC(),
 	}
 	if p.DeletionTimestamp != nil {
 		t := p.DeletionTimestamp.Time.UTC()
@@ -447,5 +501,39 @@ func convertEvent(e *corev1.Event) model.Event {
 		Namespace: ns, Kind: e.InvolvedObject.Kind, Name: e.InvolvedObject.Name,
 		Type: e.Type, Reason: e.Reason, Message: e.Message, Count: count,
 		FirstSeen: first.UTC(), LastSeen: last.UTC(),
+	}
+}
+
+func replicas(r *int32) int32 {
+	if r == nil {
+		return 1 // API default
+	}
+	return *r
+}
+
+func convertDeployment(d *appsv1.Deployment) model.Workload {
+	return model.Workload{
+		Kind: model.KindDeployment, Namespace: d.Namespace, Name: d.Name,
+		Desired: replicas(d.Spec.Replicas), Ready: d.Status.ReadyReplicas,
+		Available: d.Status.AvailableReplicas, Updated: d.Status.UpdatedReplicas,
+		CreatedAt: d.CreationTimestamp.Time.UTC(),
+	}
+}
+
+func convertStatefulSet(st *appsv1.StatefulSet) model.Workload {
+	return model.Workload{
+		Kind: model.KindStatefulSet, Namespace: st.Namespace, Name: st.Name,
+		Desired: replicas(st.Spec.Replicas), Ready: st.Status.ReadyReplicas,
+		Available: st.Status.AvailableReplicas, Updated: st.Status.UpdatedReplicas,
+		CreatedAt: st.CreationTimestamp.Time.UTC(),
+	}
+}
+
+func convertDaemonSet(ds *appsv1.DaemonSet) model.Workload {
+	return model.Workload{
+		Kind: model.KindDaemonSet, Namespace: ds.Namespace, Name: ds.Name,
+		Desired: ds.Status.DesiredNumberScheduled, Ready: ds.Status.NumberReady,
+		Available: ds.Status.NumberAvailable, Updated: ds.Status.UpdatedNumberScheduled,
+		CreatedAt: ds.CreationTimestamp.Time.UTC(),
 	}
 }

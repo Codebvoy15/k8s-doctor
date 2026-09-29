@@ -74,7 +74,7 @@ func Report(w io.Writer, r detect.Report, o Options) {
 	if ns == "" {
 		ns = "all"
 	}
-	fmt.Fprintf(w, "%s  cluster=%s  ns=%s  captured=%s\n", p.c(bold, "k8s-doctor scan"), r.Cluster, ns, r.CapturedAt.UTC().Format(time.RFC3339))
+	fmt.Fprintf(w, "%s  cluster=%s  ns=%s  captured=%s\n", p.c(bold, "k8s-doctor scan"), ShortCluster(r.Cluster), ns, r.CapturedAt.UTC().Format(time.RFC3339))
 	fmt.Fprintf(w, "%s\n", counts(p, r.Counts))
 	for _, e := range r.Errors {
 		fmt.Fprintf(w, "%s could not list %s: %s (findings needing it are skipped)\n", p.c(yellow, "coverage"), e.Kind, e.Message)
@@ -184,16 +184,19 @@ func Fleet(w io.Writer, res fleet.Result, o Options) {
 		if cr.Error != "" {
 			status = "ERROR " + truncate(cr.Error, 70)
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", cr.Cluster, num(p, imp, red), num(p, deg, yellow), num(p, lat, cyan), cr.Duration, status)
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", ShortCluster(cr.Cluster), num(p, imp, red), num(p, deg, yellow), num(p, lat, cyan), cr.Duration, status)
 	}
 	tw.Flush()
 
 	var shown []fleet.Pattern
+	inPattern := map[string]bool{}
 	for _, pt := range res.Patterns {
+		inPattern[pt.Key] = true
 		if visible(pt.Tier, o.MinTier) {
 			shown = append(shown, pt)
 		}
 	}
+	needsAttention(w, p, res, inPattern, o)
 	if len(shown) == 0 {
 		return
 	}
@@ -209,7 +212,7 @@ func Fleet(w io.Writer, res fleet.Result, o Options) {
 		}
 		fmt.Fprintf(w, "\n%s %s\n", p.tier(pt.Tier), p.c(bold, pt.Title))
 		fmt.Fprintf(w, "          %d occurrence(s) in %d cluster(s)%s\n", pt.Occurrences, len(pt.Clusters), age)
-		fmt.Fprintf(w, "          clusters: %s\n", list(pt.Clusters, 8))
+		fmt.Fprintf(w, "          clusters: %s\n", list(shortAll(pt.Clusters), 8))
 		if len(pt.Namespaces) > 0 {
 			fmt.Fprintf(w, "          namespaces: %s\n", list(pt.Namespaces, 10))
 		}
@@ -280,4 +283,75 @@ func humanAgo(d time.Duration) string {
 		return fmt.Sprintf("%dh", int(d.Hours()))
 	}
 	return fmt.Sprintf("%dd", int(d.Hours()/24))
+}
+
+// ShortCluster turns an EKS context ARN (arn:aws:eks:region:acct:cluster/name)
+// into its cluster name. Other context names are returned unchanged. JSON output
+// always keeps the full context name.
+func ShortCluster(name string) string {
+	if i := strings.LastIndex(name, ":cluster/"); i >= 0 {
+		return name[i+len(":cluster/"):]
+	}
+	return name
+}
+
+func shortAll(xs []string) []string {
+	out := make([]string, len(xs))
+	for i, x := range xs {
+		out[i] = ShortCluster(x)
+	}
+	return out
+}
+
+type attn struct {
+	cluster string
+	f       detect.Finding
+}
+
+// needsAttention lists IMPACTING/DEGRADED root causes that are not part of a
+// fleet pattern, so a single-cluster outage is never hidden behind the patterns.
+func needsAttention(w io.Writer, p pen, res fleet.Result, inPattern map[string]bool, o Options) {
+	var items []attn
+	for _, cr := range res.Clusters {
+		if cr.Report == nil {
+			continue
+		}
+		for _, f := range cr.Report.Findings {
+			if f.Tier.Rank() > detect.TierDegraded.Rank() || len(f.CausedBy) > 0 || inPattern[f.PatternKey] {
+				continue
+			}
+			items = append(items, attn{cr.Cluster, f})
+		}
+	}
+	if len(items) == 0 {
+		return
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		if items[i].f.Tier.Rank() != items[j].f.Tier.Rank() {
+			return items[i].f.Tier.Rank() < items[j].f.Tier.Rank()
+		}
+		return ShortCluster(items[i].cluster) < ShortCluster(items[j].cluster)
+	})
+	fmt.Fprintf(w, "\n%s %s\n", p.c(bold, "NEEDS ATTENTION"), p.c(grey, "(impacting/degraded, not part of a fleet pattern)"))
+	width := 0
+	for _, it := range items {
+		if n := len(ShortCluster(it.cluster)); n > width {
+			width = n
+		}
+	}
+	clusters := map[string]bool{}
+	for i, it := range items {
+		if i == o.MaxShown {
+			fmt.Fprintf(w, "  ... %d more (-o json)\n", len(items)-o.MaxShown)
+			break
+		}
+		clusters[it.cluster] = true
+		fmt.Fprintf(w, "%s %-*s  %s\n", p.tier(it.f.Tier), width, ShortCluster(it.cluster), it.f.Title)
+		if len(it.f.Explains) > 0 {
+			fmt.Fprintf(w, "          %s\n", p.c(red, fmt.Sprintf("└─ root cause of %d more finding(s)", len(it.f.Explains))))
+		}
+	}
+	if len(clusters) > 0 {
+		fmt.Fprintf(w, "%s\n", p.c(grey, "          details: k8s-doctor scan --context <context> --min-tier degraded -v"))
+	}
 }

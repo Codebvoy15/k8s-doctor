@@ -1,6 +1,6 @@
 # k8s-doctor: fleet detection engine
 
-Status: Phase 1 implemented (`scan`, `fleet`) · Last updated: 2026-09-29
+Status: Phase 1 implemented (`scan`, `fleet`), v3.6 calibrated on the first real fleet run · Last updated: 2026-09-29
 
 ## Problem
 
@@ -90,8 +90,9 @@ type Detector interface {
 | Detector | Finds | Tiering |
 |---|---|---|
 | `missing-reference` | Pods depending on a missing Secret/ConfigMap/PVC/ServiceAccount (volumes, env, envFrom, image pull secrets, including ones inherited from the ServiceAccount) | IMPACTING if it blocks a pod now; otherwise LATENT. Infers "existed then deleted/unsynced around T" when pods predate the first failure by 15m or more |
-| `workload-unavailable` | Not-Ready pods grouped by workload, with a per-pod reason (crash, OOM, image pull, unschedulable, probe, mount) | All replicas down = IMPACTING; some down, or OOMKilled in the last hour = DEGRADED |
+| `workload-unavailable` | Workloads below desired availability, judged from the **controller's own status** (desired vs ready); pods only explain *why* (crash, OOM, image pull, unschedulable, probe, mount, no pods at all). Also chronic restarts on Ready pods | 0 ready = IMPACTING; some ready, or restarted/OOMKilled within the last hour = DEGRADED. Scaled to 0 or rollout leftovers are not outages |
 | `node-unhealthy` | NotReady / pressure / cordoned nodes | NotReady with pods = IMPACTING; pressure = DEGRADED; cordoned = INFO |
+| `failed-pods` | Pods left in phase Failed (evicted, node shutdown), classified by cause | Evicted for the workload's **own** storage limit (emptyDir sizeLimit, ephemeral-storage) = LATENT, since it recurs; node-pressure evictions and other leftovers = INFO |
 
 **Finding identity.** `id` is a fingerprint of detector + cluster + subject,
 so the same problem gets the same ID every run. Phase 2's findings store
@@ -137,6 +138,16 @@ patterns (occurring 2+ times), sorted by worst tier, then breadth.
   flagged; failed, hung and panicking clusters isolated in a fleet sweep.
 - CI: gofmt, vet, `go test -race`, and the linux/amd64 build on every push.
   Releases are built by goreleaser on tag, with checksums.
+
+## Calibration log
+
+| Date | Real-run finding | Fix | Test |
+|---|---|---|---|
+| 2026-09-29 | Evicted pod of a Deployment scaled to 0/0 reported as an IMPACTING outage | Availability from controller status; Failed pods are tombstones classified by cause | `TestEvictedTombstoneOfScaledDownDeployment` |
+| 2026-09-29 | 915-restart OOM loop reported as "recent OOMKills, down since 2m" | Chronic restart detection (restarts ≥ 10) on Ready pods | `TestChronicOOMIsCalledChronic` |
+| 2026-09-29 | A single-cluster IMPACTING finding was hidden in the fleet view | "Needs attention" list of root causes not covered by patterns | `TestFleetShowsSingleClusterImpacting` |
+
+Every false positive or understated finding from a real run becomes a row here and a test.
 
 ## Metrics we will track
 

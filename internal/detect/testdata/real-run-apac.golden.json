@@ -1,0 +1,227 @@
+{
+  "schema_version": "1",
+  "cluster": "apac-nprod",
+  "captured_at": "2026-09-29T07:20:00Z",
+  "detectors": [
+    "missing-reference",
+    "workload-unavailable",
+    "node-unhealthy",
+    "failed-pods"
+  ],
+  "coverage": {
+    "ConfigMap": true,
+    "DaemonSet": true,
+    "Deployment": true,
+    "Event": true,
+    "Node": true,
+    "PersistentVolumeClaim": true,
+    "Pod": true,
+    "Secret": true,
+    "ServiceAccount": true,
+    "StatefulSet": true
+  },
+  "counts": {
+    "DEGRADED": 2,
+    "IMPACTING": 1,
+    "INFO": 1,
+    "LATENT": 1
+  },
+  "findings": [
+    {
+      "id": "69f12ad73bbd",
+      "detector": "workload-unavailable",
+      "cluster": "apac-nprod",
+      "tier": "IMPACTING",
+      "title": "Deployment jobs/worker: 0/2 ready (NoPods)",
+      "summary": "The deployment wants 2 pod(s) but none exist. Pod creation is being rejected: check the controller's events for quota, admission webhook or pod security errors.",
+      "subject": {
+        "kind": "Deployment",
+        "namespace": "jobs",
+        "name": "worker"
+      },
+      "evidence": [
+        "0/2 ready (from controller status)",
+        "no pods exist for this workload"
+      ],
+      "remediation": {
+        "steps": [
+          {
+            "description": "Read the controller's conditions and events",
+            "command": "kubectl describe deployment worker -n jobs"
+          },
+          {
+            "description": "Pod creation errors land on the ReplicaSet/StatefulSet (quota exceeded, webhook denied, pod security)",
+            "command": "kubectl get events -n jobs --field-selector reason=FailedCreate"
+          },
+          {
+            "description": "Check namespace quota",
+            "command": "kubectl describe resourcequota -n jobs"
+          }
+        ],
+        "verify": [
+          "kubectl get deployment worker -n jobs"
+        ]
+      },
+      "pattern_key": "workload-unavailable|Deployment|worker|NoPods"
+    },
+    {
+      "id": "0bd1805a3221",
+      "detector": "workload-unavailable",
+      "cluster": "apac-nprod",
+      "tier": "DEGRADED",
+      "title": "Deployment web/cart: 1/2 ready (CrashLoopBackOff)",
+      "summary": "1 of 2 replicas of deployment cart are ready. Dominant reason: containers crash on start.",
+      "subject": {
+        "kind": "Deployment",
+        "namespace": "web",
+        "name": "cart"
+      },
+      "affected": [
+        {
+          "kind": "Pod",
+          "namespace": "web",
+          "name": "cart-6f7a8b9c0d-bad22"
+        }
+      ],
+      "evidence": [
+        "1/2 ready (from controller status)",
+        "cart-6f7a8b9c0d-bad22 [CrashLoopBackOff, node ip-10-116-165-196]: container cart crash-looping (restarts=12, last exit 1 Error)",
+        "down since about 5m ago"
+      ],
+      "since": "2026-09-29T07:15:00Z",
+      "remediation": {
+        "steps": [
+          {
+            "description": "Read the crash output from the previous container instance",
+            "command": "kubectl logs cart-6f7a8b9c0d-bad22 -n web --previous --tail=100"
+          },
+          {
+            "description": "Check exit code, reason and limits",
+            "command": "kubectl describe pod cart-6f7a8b9c0d-bad22 -n web"
+          }
+        ],
+        "verify": [
+          "kubectl get pods -n web | grep cart"
+        ]
+      },
+      "pattern_key": "workload-unavailable|Deployment|cart|CrashLoopBackOff"
+    },
+    {
+      "id": "57e088c08865",
+      "detector": "workload-unavailable",
+      "cluster": "apac-nprod",
+      "tier": "DEGRADED",
+      "title": "StatefulSet logging/fluentd: chronic OOMKills (915 restarts)",
+      "summary": "Pods keep restarting (up to 915 times) and restarted again within the last hour. Each OOMKill drops in-flight work (for log shippers: buffered logs). The memory limit is too low for the steady-state load, or there is a leak.",
+      "subject": {
+        "kind": "StatefulSet",
+        "namespace": "logging",
+        "name": "fluentd"
+      },
+      "affected": [
+        {
+          "kind": "Pod",
+          "namespace": "logging",
+          "name": "fluentd-0"
+        }
+      ],
+      "evidence": [
+        "fluentd-0 [OOMKilled, node ip-10-116-165-196]: container fluentd restarted 2m ago (OOMKilled), restarts=915; Ready again now",
+        "last restart 2m ago"
+      ],
+      "remediation": {
+        "steps": [
+          {
+            "description": "Read the crash output from the previous container instance",
+            "command": "kubectl logs fluentd-0 -n logging --previous --tail=100"
+          },
+          {
+            "description": "Check exit code, reason and limits",
+            "command": "kubectl describe pod fluentd-0 -n logging"
+          }
+        ],
+        "verify": [
+          "kubectl get pods -n logging | grep fluentd"
+        ]
+      },
+      "pattern_key": "workload-unavailable|StatefulSet|fluentd|OOMKilled"
+    },
+    {
+      "id": "6606ac7e849b",
+      "detector": "failed-pods",
+      "cluster": "apac-nprod",
+      "tier": "LATENT",
+      "title": "Deployment app-stage/reconciler: 1 evicted/failed pod(s) (emptyDir \"reconciler-log\" exceeded its 1G limit)",
+      "summary": "1 pod(s) were evicted because the workload outgrew its own storage limit (emptyDir \"reconciler-log\" exceeded its 1G limit). This recurs: the app writes to local disk faster than it is cleaned up. It is scaled to 0 now, so nothing is down, but it will be evicted again when scaled back up.",
+      "subject": {
+        "kind": "Deployment",
+        "namespace": "app-stage",
+        "name": "reconciler"
+      },
+      "affected": [
+        {
+          "kind": "Pod",
+          "namespace": "app-stage",
+          "name": "reconciler-7d67bf7f59-jqjm7"
+        }
+      ],
+      "evidence": [
+        "reconciler-7d67bf7f59-jqjm7 [Evicted, node ip-10-116-165-196, created 3d ago]: Usage of EmptyDir volume \"reconciler-log\" exceeds the limit \"1G\"."
+      ],
+      "remediation": {
+        "steps": [
+          {
+            "description": "Find what fills the volume (usually file logging): log to stdout, rotate, or ship logs off the pod"
+          },
+          {
+            "description": "Or raise the emptyDir sizeLimit / ephemeral-storage limit if the usage is legitimate",
+            "mutating": true
+          },
+          {
+            "description": "Clean up the leftover Failed pods (they hold no resources, only clutter)",
+            "command": "kubectl delete pod -n app-stage --field-selector=status.phase=Failed",
+            "mutating": true
+          }
+        ]
+      },
+      "pattern_key": "failed-pods|emptydir-limit|reconciler"
+    },
+    {
+      "id": "75c13093010e",
+      "detector": "failed-pods",
+      "cluster": "apac-nprod",
+      "tier": "INFO",
+      "title": "Deployment web/cart: 1 evicted/failed pod(s) (node was low on memory)",
+      "summary": "1 pod(s) left in Failed state (node was low on memory). The controller replaced them; these are leftovers.",
+      "subject": {
+        "kind": "Deployment",
+        "namespace": "web",
+        "name": "cart"
+      },
+      "affected": [
+        {
+          "kind": "Pod",
+          "namespace": "web",
+          "name": "cart-6f7a8b9c0d-old33"
+        }
+      ],
+      "evidence": [
+        "cart-6f7a8b9c0d-old33 [Evicted, node ip-10-116-165-196, created 30h ago]: The node was low on resource: memory. Threshold quantity: 100Mi, available: 80Mi."
+      ],
+      "remediation": {
+        "steps": [
+          {
+            "description": "Check the node's pressure findings and which pods consumed the resource",
+            "command": "./k8s-doctor node pressure -o json"
+          },
+          {
+            "description": "Clean up the leftover Failed pods (they hold no resources, only clutter)",
+            "command": "kubectl delete pod -n web --field-selector=status.phase=Failed",
+            "mutating": true
+          }
+        ]
+      },
+      "pattern_key": "failed-pods|node-pressure|cart"
+    }
+  ]
+}

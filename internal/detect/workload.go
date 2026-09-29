@@ -9,51 +9,67 @@ import (
 	"github.com/Codebvoy15/k8s-doctor/internal/model"
 )
 
-// WorkloadUnavailable groups not-Ready pods by workload (Deployment,
-// StatefulSet, DaemonSet, ...) and explains why each pod is down.
-// All replicas down = IMPACTING; some down, or recently OOMKilled = DEGRADED.
+// WorkloadUnavailable reports workloads that are below their desired
+// availability, and workloads whose pods restart chronically.
+//
+// Availability comes from the controller's own status (desired vs ready) when
+// it was collected: a Deployment scaled to 0 is not down, and a rolling update
+// with one old pod not Ready is not an outage. Pods are only used to explain
+// *why*. Older snapshots without controller status fall back to pod counts.
+//
+// All replicas down = IMPACTING; some down, or restarting/OOMKilled within the
+// last hour = DEGRADED. Failed pods (evicted, node shutdown) are tombstones
+// handled by the failed-pods detector, not counted as the workload being down.
 type WorkloadUnavailable struct{}
 
 func (WorkloadUnavailable) ID() string { return "workload-unavailable" }
 func (WorkloadUnavailable) Description() string {
-	return "Workloads with pods that are not Ready, grouped by workload, with the reason per pod"
+	return "Workloads below desired availability (from controller status), or restarting chronically, with the reason per pod"
 }
 
 // startupGrace avoids flagging pods that are simply still starting.
 const startupGrace = 3 * time.Minute
 
+// chronicRestarts: restart count at which a restart pattern is chronic, not a blip.
+const chronicRestarts = 10
+
 type podProblem struct {
-	pod    model.Pod
-	reason string // short machine-ish reason: CrashLoopBackOff, ReadinessProbe, Unschedulable, ...
-	detail string
-	since  time.Time
+	pod     model.Pod
+	reason  string // short machine-ish reason: CrashLoopBackOff, ReadinessProbe, Unschedulable, ...
+	detail  string
+	since   time.Time
+	chronic bool // restart problems only
+}
+
+type wlGroup struct {
+	ns       string
+	ref      model.OwnerRef
+	active   int // non-terminal pods
+	problems []podProblem
+	restarts []podProblem
 }
 
 func (d WorkloadUnavailable) Detect(ix *model.Index) []Finding {
 	now := ix.S.CapturedAt
-	type wl struct {
-		ns       string
-		ref      model.OwnerRef
-		total    int
-		problems []podProblem
-		oom      []podProblem
-	}
-	groups := map[string]*wl{}
+	groups := map[string]*wlGroup{}
 	var order []string
-
-	for _, p := range ix.S.Pods {
-		if p.Phase == "Succeeded" || (p.Owner.Kind == "Job" && p.Phase == "Failed") {
-			continue
-		}
-		w := p.Workload()
-		k := p.Namespace + "|" + w.Kind + "|" + w.Name
+	group := func(ns string, ref model.OwnerRef) *wlGroup {
+		k := ns + "|" + ref.Kind + "|" + ref.Name
 		g, ok := groups[k]
 		if !ok {
-			g = &wl{ns: p.Namespace, ref: w}
+			g = &wlGroup{ns: ns, ref: ref}
 			groups[k] = g
 			order = append(order, k)
 		}
-		g.total++
+		return g
+	}
+
+	for _, p := range ix.S.Pods {
+		if p.Phase == "Succeeded" || p.Phase == "Failed" {
+			continue // terminal pods: not part of current availability (see failed-pods)
+		}
+		g := group(p.Namespace, p.Workload())
+		g.active++
 		if p.DeletingSince != nil {
 			continue // terminating pods are handled by rollout; stuck ones are a separate detector
 		}
@@ -64,32 +80,77 @@ func (d WorkloadUnavailable) Detect(ix *model.Index) []Finding {
 			g.problems = append(g.problems, diagnosePod(ix, p))
 			continue
 		}
-		for _, c := range p.Containers {
-			if c.LastTermReason == "OOMKilled" && c.LastTermAt != nil && now.Sub(*c.LastTermAt) < time.Hour {
-				g.oom = append(g.oom, podProblem{pod: p, reason: "OOMKilled", since: *c.LastTermAt,
-					detail: fmt.Sprintf("container %s OOMKilled %s ago (restarts=%d); Ready again now", c.Name, humanDuration(now.Sub(*c.LastTermAt)), c.Restarts)})
-				break
-			}
+		if rp, ok := restartProblem(now, p); ok {
+			g.restarts = append(g.restarts, rp)
+		}
+	}
+	// controllers that want pods but have none at all (quota, admission webhook, PSA, ...)
+	for _, w := range ix.S.Workloads {
+		if w.Desired > 0 && w.Ready < w.Desired {
+			group(w.Namespace, model.OwnerRef{Kind: w.Kind, Name: w.Name})
 		}
 	}
 
 	var out []Finding
 	for _, k := range order {
 		g := groups[k]
-		probs := g.problems
-		tier := TierDegraded
-		if len(probs) > 0 && len(probs) == g.total {
-			tier = TierImpacting
-		}
-		if len(probs) == 0 {
-			if len(g.oom) == 0 {
+		st, known := ix.Workload(g.ns, g.ref)
+		if known {
+			if st.Desired == 0 {
+				continue // scaled to zero on purpose: nothing is down
+			}
+			missing := st.Desired - st.Ready
+			starting := len(g.problems) == 0 && g.active > 0 // not-ready pods are all inside the startup grace
+			brandNew := g.active == 0 && now.Sub(st.CreatedAt) < startupGrace
+			if missing > 0 && !starting && !brandNew {
+				tier := TierDegraded
+				if st.Ready == 0 {
+					tier = TierImpacting
+				}
+				out = append(out, d.availability(ix, now, g, int(st.Ready), int(st.Desired), true, tier))
 				continue
 			}
-			probs = g.oom
+			// fully available per the controller: stray not-Ready pods are rollout leftovers
+		} else if len(g.problems) > 0 {
+			tier := TierDegraded
+			if len(g.problems) == g.active {
+				tier = TierImpacting
+			}
+			out = append(out, d.availability(ix, now, g, g.active-len(g.problems), g.active, false, tier))
+			continue
 		}
-		out = append(out, d.finding(ix, now, g.ns, g.ref, g.total, probs, tier))
+		if len(g.restarts) > 0 {
+			out = append(out, d.restartFinding(ix, now, g))
+		}
 	}
 	return out
+}
+
+// restartProblem flags a Ready pod whose container restarted within the last
+// hour after an OOMKill, or has restarted chronically.
+func restartProblem(now time.Time, p model.Pod) (podProblem, bool) {
+	for _, c := range p.Containers {
+		if c.Init || c.LastTermAt == nil || now.Sub(*c.LastTermAt) >= time.Hour {
+			continue
+		}
+		oom := c.LastTermReason == "OOMKilled"
+		chronic := c.Restarts >= chronicRestarts
+		if !oom && !chronic {
+			continue
+		}
+		reason := "Restarting"
+		if oom {
+			reason = "OOMKilled"
+		}
+		last := c.LastTermReason
+		if last == "" {
+			last = fmt.Sprintf("exit %d", c.LastTermExit)
+		}
+		return podProblem{pod: p, reason: reason, since: *c.LastTermAt, chronic: chronic,
+			detail: fmt.Sprintf("container %s restarted %s ago (%s), restarts=%d; Ready again now",
+				c.Name, humanDuration(now.Sub(*c.LastTermAt)), last, c.Restarts)}, true
+	}
+	return podProblem{}, false
 }
 
 func diagnosePod(ix *model.Index, p model.Pod) podProblem {
@@ -167,15 +228,10 @@ func diagnosePod(ix *model.Index, p model.Pod) podProblem {
 	return pp
 }
 
-func (d WorkloadUnavailable) finding(ix *model.Index, now time.Time, ns string, w model.OwnerRef, total int, probs []podProblem, tier Tier) Finding {
-	// dominant reason drives the title and the remediation
+func dominantReason(probs []podProblem) string {
 	counts := map[string]int{}
-	var sinceT *time.Time
-	var affected []ObjectRef
 	for _, pp := range probs {
 		counts[pp.reason]++
-		sinceT = earliest(sinceT, pp.since)
-		affected = append(affected, podRef(pp.pod))
 	}
 	reasons := make([]string, 0, len(counts))
 	for r := range counts {
@@ -187,27 +243,19 @@ func (d WorkloadUnavailable) finding(ix *model.Index, now time.Time, ns string, 
 		}
 		return reasons[i] < reasons[j]
 	})
-	dominant := reasons[0]
+	return reasons[0]
+}
 
-	unavailable := len(probs)
-	var title, summary string
-	if tier == TierDegraded && probs[0].reason == "OOMKilled" && probs[0].pod.Ready {
-		title = fmt.Sprintf("%s %s/%s: recent OOMKills", w.Kind, ns, w.Name)
-		summary = fmt.Sprintf("%d pod(s) were OOMKilled in the last hour and restarted. Memory limit is likely too low or usage spiked.", unavailable)
-	} else {
-		title = fmt.Sprintf("%s %s/%s: %d/%d pods unavailable (%s)", w.Kind, ns, w.Name, unavailable, total, dominant)
-		if tier == TierImpacting {
-			summary = fmt.Sprintf("Every pod of %s %s is down. Dominant reason: %s.", strings.ToLower(w.Kind), w.Name, reasonText(dominant))
-		} else {
-			summary = fmt.Sprintf("%d of %d pods of %s %s are down. Dominant reason: %s.", unavailable, total, strings.ToLower(w.Kind), w.Name, reasonText(dominant))
-		}
-	}
-
-	var ev []string
+func podEvidence(probs []podProblem) (ev []string, affected []ObjectRef, sinceT *time.Time) {
 	for i, pp := range probs {
+		affected = append(affected, podRef(pp.pod))
+		sinceT = earliest(sinceT, pp.since)
 		if i == 5 {
 			ev = append(ev, fmt.Sprintf("... %d more pods", len(probs)-5))
-			break
+			continue
+		}
+		if i > 5 {
+			continue
 		}
 		node := pp.pod.Node
 		if node == "" {
@@ -215,22 +263,109 @@ func (d WorkloadUnavailable) finding(ix *model.Index, now time.Time, ns string, 
 		}
 		ev = append(ev, fmt.Sprintf("%s [%s, node %s]: %s", pp.pod.Name, pp.reason, node, pp.detail))
 	}
+	return
+}
+
+// availability builds the finding for a workload below its desired replicas.
+func (d WorkloadUnavailable) availability(ix *model.Index, now time.Time, g *wlGroup, ready, desired int, fromController bool, tier Tier) Finding {
+	w, ns := g.ref, g.ns
+	dominant := "NoPods"
+	if len(g.problems) > 0 {
+		dominant = dominantReason(g.problems)
+	} else if g.active > 0 {
+		dominant = "NotReady"
+	}
+	ev, affected, sinceT := podEvidence(g.problems)
+	src := "pod count"
+	if fromController {
+		src = "controller status"
+	}
+	ev = append([]string{fmt.Sprintf("%d/%d ready (from %s)", ready, desired, src)}, ev...)
+
+	var summary string
+	switch {
+	case dominant == "NoPods":
+		summary = fmt.Sprintf("The %s wants %d pod(s) but none exist. Pod creation is being rejected: check the controller's events for quota, admission webhook or pod security errors.", strings.ToLower(w.Kind), desired)
+		ev = append(ev, "no pods exist for this workload")
+	case tier == TierImpacting:
+		summary = fmt.Sprintf("No replica of %s %s is ready. Dominant reason: %s.", strings.ToLower(w.Kind), w.Name, reasonText(dominant))
+	default:
+		summary = fmt.Sprintf("%d of %d replicas of %s %s are ready. Dominant reason: %s.", ready, desired, strings.ToLower(w.Kind), w.Name, reasonText(dominant))
+	}
 	if sinceT != nil {
 		ev = append(ev, "down since about "+since(now, sinceT)+" ago")
 	}
-
+	plan := noPodsPlan(w, ns)
+	if len(g.problems) > 0 {
+		plan = workloadPlan(dominant, ns, g.problems[0].pod)
+	}
 	return Finding{
 		ID:          Fingerprint(d.ID(), ix.S.Cluster, ns, w.Kind, w.Name),
 		Tier:        tier,
-		Title:       title,
+		Title:       fmt.Sprintf("%s %s/%s: %d/%d ready (%s)", w.Kind, ns, w.Name, ready, desired, dominant),
 		Summary:     summary,
 		Subject:     ObjectRef{Kind: w.Kind, Namespace: ns, Name: w.Name},
 		Affected:    affected,
 		Evidence:    ev,
 		Since:       sinceT,
-		Remediation: workloadPlan(dominant, ns, probs[0].pod),
+		Remediation: plan,
 		PatternKey:  "workload-unavailable|" + w.Kind + "|" + w.Name + "|" + dominant,
 	}
+}
+
+// restartFinding: the workload is available, but pods keep restarting.
+func (d WorkloadUnavailable) restartFinding(ix *model.Index, now time.Time, g *wlGroup) Finding {
+	w, ns := g.ref, g.ns
+	dominant := dominantReason(g.restarts)
+	ev, affected, _ := podEvidence(g.restarts)
+	var maxRestarts int32
+	chronic := false
+	for _, pp := range g.restarts {
+		chronic = chronic || pp.chronic
+		for _, c := range pp.pod.Containers {
+			if c.Restarts > maxRestarts {
+				maxRestarts = c.Restarts
+			}
+		}
+	}
+	kind := "OOMKills"
+	if dominant != "OOMKilled" {
+		kind = "restarts"
+	}
+	var title, summary string
+	if chronic {
+		title = fmt.Sprintf("%s %s/%s: chronic %s (%d restarts)", w.Kind, ns, w.Name, kind, maxRestarts)
+		summary = fmt.Sprintf("Pods keep restarting (up to %d times) and restarted again within the last hour. ", maxRestarts)
+		if dominant == "OOMKilled" {
+			summary += "Each OOMKill drops in-flight work (for log shippers: buffered logs). The memory limit is too low for the steady-state load, or there is a leak."
+		} else {
+			summary += "The workload looks available only between crashes."
+		}
+	} else {
+		title = fmt.Sprintf("%s %s/%s: recent %s", w.Kind, ns, w.Name, kind)
+		summary = fmt.Sprintf("%d pod(s) restarted in the last hour (%s) and are Ready again.", len(g.restarts), reasonText(dominant))
+	}
+	sinceT := earliest(nil, g.restarts[0].since)
+	ev = append(ev, "last restart "+since(now, sinceT)+" ago")
+	return Finding{
+		ID:          Fingerprint(d.ID(), ix.S.Cluster, ns, w.Kind, w.Name),
+		Tier:        TierDegraded,
+		Title:       title,
+		Summary:     summary,
+		Subject:     ObjectRef{Kind: w.Kind, Namespace: ns, Name: w.Name},
+		Affected:    affected,
+		Evidence:    ev,
+		Remediation: workloadPlan(dominant, ns, g.restarts[0].pod),
+		PatternKey:  "workload-unavailable|" + w.Kind + "|" + w.Name + "|" + dominant,
+	}
+}
+
+func noPodsPlan(w model.OwnerRef, ns string) *Plan {
+	return &Plan{Steps: []Step{
+		{Description: "Read the controller's conditions and events", Command: fmt.Sprintf("kubectl describe %s %s -n %s", strings.ToLower(w.Kind), w.Name, ns)},
+		{Description: "Pod creation errors land on the ReplicaSet/StatefulSet (quota exceeded, webhook denied, pod security)", Command: fmt.Sprintf("kubectl get events -n %s --field-selector reason=FailedCreate", ns)},
+		{Description: "Check namespace quota", Command: "kubectl describe resourcequota -n " + ns},
+	}, Verify: []string{fmt.Sprintf("kubectl get %s %s -n %s", strings.ToLower(w.Kind), w.Name, ns)}}
 }
 
 func reasonText(r string) string {
@@ -251,6 +386,12 @@ func reasonText(r string) string {
 		return "a volume cannot be mounted"
 	case "CreateContainerConfigError":
 		return "container config is invalid (usually a missing Secret/ConfigMap key)"
+	case "NotReady":
+		return "pods are not Ready and nothing on the pod explains it (check the node they run on)"
+	case "Restarting":
+		return "containers exit and are restarted"
+	case "NoPods":
+		return "no pods could be created"
 	}
 	return strings.ToLower(r)
 }
@@ -259,7 +400,7 @@ func workloadPlan(reason, ns string, p model.Pod) *Plan {
 	pl := &Plan{}
 	add := func(desc, cmd string) { pl.Steps = append(pl.Steps, Step{Description: desc, Command: cmd}) }
 	switch reason {
-	case "CrashLoopBackOff", "OOMKilled":
+	case "CrashLoopBackOff", "OOMKilled", "Restarting":
 		add("Read the crash output from the previous container instance", fmt.Sprintf("kubectl logs %s -n %s --previous --tail=100", p.Name, ns))
 		add("Check exit code, reason and limits", fmt.Sprintf("kubectl describe pod %s -n %s", p.Name, ns))
 	case "ImagePull":

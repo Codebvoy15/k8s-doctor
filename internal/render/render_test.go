@@ -32,7 +32,7 @@ func TestReportNestsSymptomsAndCollapsesPatterns(t *testing.T) {
 	if !strings.Contains(out, "└─ causes") || !strings.Contains(out, "StatefulSet shop-stage/elasticsearch1") {
 		t.Errorf("ES should be nested under its missing pull secret:\n%s", out)
 	}
-	if strings.Count(out, "StatefulSet shop-stage/elasticsearch1: 1/1") != 1 {
+	if strings.Count(out, "StatefulSet shop-stage/elasticsearch1: 0/1 ready") != 1 {
 		t.Error("a symptom must appear once (nested), not also at top level")
 	}
 	if !strings.Contains(out, "✎") {
@@ -63,5 +63,43 @@ func TestFleetTable(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("fleet output missing %q:\n%s", want, out)
 		}
+	}
+}
+
+func TestShortCluster(t *testing.T) {
+	cases := map[string]string{
+		"arn:aws:eks:ap-southeast-1:123456789012:cluster/apac-nprod": "apac-nprod",
+		"rancher-prod-1": "rancher-prod-1",
+	}
+	for in, want := range cases {
+		if got := ShortCluster(in); got != want {
+			t.Errorf("ShortCluster(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// Regression from the first real fleet run: an IMPACTING finding in one cluster
+// was invisible because the fleet view only printed repeated patterns.
+func TestFleetShowsSingleClusterImpacting(t *testing.T) {
+	arn := "arn:aws:eks:ap-southeast-1:123456789012:cluster/apac-nprod"
+	res := fleet.Run(context.Background(), []string{arn, "eks-b"}, func(ctx context.Context, c string) (*model.Snapshot, error) {
+		name := "dynatrace-gap"
+		if c == arn {
+			name = "real-run-apac"
+		}
+		s := snap(t, name)
+		s.Cluster = c
+		return s, nil
+	}, fleet.Options{})
+	var buf bytes.Buffer
+	Fleet(&buf, res, Options{})
+	out := buf.String()
+	for _, want := range []string{"NEEDS ATTENTION", "apac-nprod", "Deployment jobs/worker: 0/2 ready (NoPods)", "chronic OOMKills (915 restarts)"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("fleet output missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "arn:aws:eks") {
+		t.Errorf("terminal output should use short cluster names:\n%s", out)
 	}
 }

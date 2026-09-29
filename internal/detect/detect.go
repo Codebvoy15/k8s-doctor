@@ -117,6 +117,7 @@ func Registry() []Detector {
 		MissingReference{},
 		WorkloadUnavailable{},
 		NodeUnhealthy{},
+		FailedPods{},
 	}
 }
 
