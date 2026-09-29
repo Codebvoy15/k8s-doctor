@@ -1,0 +1,197 @@
+{
+ "schema_version": "1",
+ "cluster": "stage-us-east-1",
+ "captured_at": "2026-09-29T06:00:00Z",
+ "collected": {
+  "Pod": true,
+  "Node": true,
+  "Secret": true,
+  "ConfigMap": true,
+  "PersistentVolumeClaim": true,
+  "ServiceAccount": true,
+  "Event": true
+ },
+ "pods": [
+  {
+   "namespace": "kong",
+   "name": "kong-gateway-6f84b4cd96-m5rj2",
+   "node": "ip-10-0-1-5",
+   "phase": "Running",
+   "ready": true,
+   "service_account": "default",
+   "owner": {
+    "kind": "ReplicaSet",
+    "name": "kong-gateway-6f84b4cd96"
+   },
+   "created_at": "2026-09-10T00:00:00Z",
+   "containers": [
+    {
+     "name": "app",
+     "image": "artifactory.example.com/app:1.0",
+     "image_id": "artifactory.example.com/app@sha256:1",
+     "ready": true,
+     "restarts": 0,
+     "state": "running"
+    }
+   ],
+   "refs": [
+    {
+     "kind": "Secret",
+     "name": "dynatrace-bootstrapper-config",
+     "via": "volume:dynatrace-input"
+    }
+   ]
+  },
+  {
+   "namespace": "logging",
+   "name": "logging-operator-fluentbit-rjrf8",
+   "node": "ip-10-0-1-5",
+   "phase": "Running",
+   "ready": true,
+   "service_account": "default",
+   "owner": {
+    "kind": "DaemonSet",
+    "name": "logging-operator-fluentbit"
+   },
+   "created_at": "2026-09-10T00:00:00Z",
+   "containers": [
+    {
+     "name": "app",
+     "image": "artifactory.example.com/app:1.0",
+     "image_id": "artifactory.example.com/app@sha256:1",
+     "ready": true,
+     "restarts": 0,
+     "state": "running"
+    }
+   ],
+   "refs": [
+    {
+     "kind": "Secret",
+     "name": "dynatrace-bootstrapper-config",
+     "via": "volume:dynatrace-input"
+    }
+   ]
+  },
+  {
+   "namespace": "servicenow",
+   "name": "k8s-informer-prod-5b7d96f597-mmvhp",
+   "node": "ip-10-0-1-5",
+   "phase": "Running",
+   "ready": true,
+   "service_account": "k8s-informer",
+   "owner": {
+    "kind": "ReplicaSet",
+    "name": "k8s-informer-prod-5b7d96f597"
+   },
+   "created_at": "2026-09-10T00:00:00Z",
+   "containers": [
+    {
+     "name": "app",
+     "image": "artifactory.example.com/app:1.0",
+     "image_id": "artifactory.example.com/app@sha256:1",
+     "ready": true,
+     "restarts": 0,
+     "state": "running"
+    }
+   ],
+   "refs": [
+    {
+     "kind": "Secret",
+     "name": "dynatrace-bootstrapper-config",
+     "via": "volume:dynatrace-input"
+    }
+   ]
+  }
+ ],
+ "nodes": [
+  {
+   "name": "ip-10-0-1-5",
+   "ready": true,
+   "conditions": [
+    {
+     "type": "Ready",
+     "status": "True"
+    }
+   ],
+   "labels": {
+    "node.kubernetes.io/instance-type": "m6i.2xlarge",
+    "karpenter.sh/capacity-type": "spot",
+    "topology.kubernetes.io/zone": "us-east-1a"
+   },
+   "os_image": "Amazon Linux 2023",
+   "created_at": "2026-09-20T00:00:00Z"
+  }
+ ],
+ "secrets": [
+  {
+   "namespace": "kong",
+   "name": "kong-tls",
+   "type": "kubernetes.io/tls"
+  }
+ ],
+ "configmaps": [],
+ "pvcs": [],
+ "service_accounts": [
+  {
+   "namespace": "servicenow",
+   "name": "k8s-informer",
+   "image_pull_secrets": [
+    "k8s-informer-repo-cred"
+   ]
+  },
+  {
+   "namespace": "kong",
+   "name": "default"
+  },
+  {
+   "namespace": "logging",
+   "name": "default"
+  }
+ ],
+ "events": [
+  {
+   "namespace": "kong",
+   "kind": "Pod",
+   "name": "kong-gateway-6f84b4cd96-m5rj2",
+   "type": "Warning",
+   "reason": "FailedMount",
+   "message": "MountVolume.SetUp failed for volume \"dynatrace-input\" : secret \"dynatrace-bootstrapper-config\" not found",
+   "count": 10365,
+   "first_seen": "2026-09-15T02:10:00Z",
+   "last_seen": "2026-09-29T06:00:00Z"
+  },
+  {
+   "namespace": "logging",
+   "kind": "Pod",
+   "name": "logging-operator-fluentbit-rjrf8",
+   "type": "Warning",
+   "reason": "FailedMount",
+   "message": "MountVolume.SetUp failed for volume \"dynatrace-input\" : secret \"dynatrace-bootstrapper-config\" not found",
+   "count": 10368,
+   "first_seen": "2026-09-15T02:04:00Z",
+   "last_seen": "2026-09-29T06:00:00Z"
+  },
+  {
+   "namespace": "servicenow",
+   "kind": "Pod",
+   "name": "k8s-informer-prod-5b7d96f597-mmvhp",
+   "type": "Warning",
+   "reason": "FailedMount",
+   "message": "MountVolume.SetUp failed for volume \"dynatrace-input\" : secret \"dynatrace-bootstrapper-config\" not found",
+   "count": 10366,
+   "first_seen": "2026-09-15T02:08:00Z",
+   "last_seen": "2026-09-29T06:00:00Z"
+  },
+  {
+   "namespace": "servicenow",
+   "kind": "Pod",
+   "name": "k8s-informer-prod-5b7d96f597-mmvhp",
+   "type": "Warning",
+   "reason": "FailedToRetrieveImagePullSecret",
+   "message": "Unable to retrieve some image pull secrets (k8s-informer-repo-cred); attempting to pull the image may not succeed.",
+   "count": 27816,
+   "first_seen": "2026-08-31T10:00:00Z",
+   "last_seen": "2026-09-29T06:00:00Z"
+  }
+ ]
+}

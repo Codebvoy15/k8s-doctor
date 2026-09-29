@@ -1,0 +1,156 @@
+{
+  "schema_version": "1",
+  "cluster": "stage-us-east-1",
+  "captured_at": "2026-09-29T06:00:00Z",
+  "detectors": [
+    "missing-reference",
+    "workload-unavailable",
+    "node-unhealthy"
+  ],
+  "coverage": {
+    "ConfigMap": true,
+    "Event": true,
+    "Node": true,
+    "PersistentVolumeClaim": true,
+    "Pod": true,
+    "Secret": true,
+    "ServiceAccount": true
+  },
+  "counts": {
+    "IMPACTING": 3
+  },
+  "findings": [
+    {
+      "id": "9cfbaa4a8d30",
+      "detector": "missing-reference",
+      "cluster": "stage-us-east-1",
+      "tier": "IMPACTING",
+      "title": "Missing Secret shop-stage/shop-registry-cred referenced by 1 pod(s)",
+      "summary": "1 pod(s) cannot start because Secret \"shop-registry-cred\" does not exist in shop-stage (image pull secret).",
+      "subject": {
+        "kind": "Secret",
+        "namespace": "shop-stage",
+        "name": "shop-registry-cred"
+      },
+      "affected": [
+        {
+          "kind": "Pod",
+          "namespace": "shop-stage",
+          "name": "elasticsearch1-0"
+        }
+      ],
+      "evidence": [
+        "Secret shop-stage/shop-registry-cred: absent (the secret list was collected successfully)",
+        "referenced via image pull secret by: elasticsearch1-0",
+        "blocked now: elasticsearch1-0",
+        "FailedToRetrieveImagePullSecret x32 on elasticsearch1-0: Unable to retrieve some image pull secrets (shop-registry-cred); attempting to pull the image may not succeed.",
+        "first seen 1h ago"
+      ],
+      "since": "2026-09-29T04:31:00Z",
+      "remediation": {
+        "steps": [
+          {
+            "description": "Confirm it is absent and see which pods need it",
+            "command": "kubectl get secret shop-registry-cred -n shop-stage -o name"
+          },
+          {
+            "description": "Recreate Secret \"shop-registry-cred\" through its normal provisioning path (operator, pipeline or secret sync), or remove the stale reference from the workload",
+            "mutating": true
+          }
+        ],
+        "verify": [
+          "kubectl get secret shop-registry-cred -n shop-stage -o name",
+          "kubectl get events -n shop-stage --field-selector type=Warning | grep shop-registry-cred   # should stop growing"
+        ]
+      },
+      "pattern_key": "missing-reference|Secret|shop-registry-cred",
+      "explains": [
+        "b601dc0aef53"
+      ]
+    },
+    {
+      "id": "45e924bdefcc",
+      "detector": "workload-unavailable",
+      "cluster": "stage-us-east-1",
+      "tier": "IMPACTING",
+      "title": "Deployment shop-stage/web: 1/1 pods unavailable (ReadinessProbe)",
+      "summary": "Every pod of deployment web is down. Dominant reason: readiness probe failing (the pod runs but receives no traffic).",
+      "subject": {
+        "kind": "Deployment",
+        "namespace": "shop-stage",
+        "name": "web"
+      },
+      "affected": [
+        {
+          "kind": "Pod",
+          "namespace": "shop-stage",
+          "name": "web-69d45cd5c9-jktk8"
+        }
+      ],
+      "evidence": [
+        "web-69d45cd5c9-jktk8 [ReadinessProbe, node ip-10-0-1-5]: x11: Readiness probe failed: HTTP probe failed with statuscode: 502",
+        "down since about 1h ago"
+      ],
+      "since": "2026-09-29T04:35:00Z",
+      "remediation": {
+        "steps": [
+          {
+            "description": "See what the probe gets back (5xx usually means the app's own upstream is down)",
+            "command": "kubectl logs web-69d45cd5c9-jktk8 -n shop-stage --tail=100"
+          },
+          {
+            "description": "Check backends in the namespace: empty endpoints mean a dependency is down",
+            "command": "kubectl get endpoints -n shop-stage"
+          }
+        ],
+        "verify": [
+          "kubectl get pods -n shop-stage | grep web"
+        ]
+      },
+      "pattern_key": "workload-unavailable|Deployment|web|ReadinessProbe"
+    },
+    {
+      "id": "b601dc0aef53",
+      "detector": "workload-unavailable",
+      "cluster": "stage-us-east-1",
+      "tier": "IMPACTING",
+      "title": "StatefulSet shop-stage/elasticsearch1: 1/1 pods unavailable (ImagePull)",
+      "summary": "Every pod of statefulset elasticsearch1 is down. Dominant reason: images cannot be pulled.",
+      "subject": {
+        "kind": "StatefulSet",
+        "namespace": "shop-stage",
+        "name": "elasticsearch1"
+      },
+      "affected": [
+        {
+          "kind": "Pod",
+          "namespace": "shop-stage",
+          "name": "elasticsearch1-0"
+        }
+      ],
+      "evidence": [
+        "elasticsearch1-0 [ImagePull, node ip-10-0-1-9]: container elasticsearch cannot pull artifactory.example.com/es:7.17: Back-off pulling image \"artifactory.example.com/es:7.17\"",
+        "down since about 1h ago"
+      ],
+      "since": "2026-09-29T04:30:00Z",
+      "remediation": {
+        "steps": [
+          {
+            "description": "Read the exact pull error (not found, unauthorized, or timeout)",
+            "command": "kubectl describe pod elasticsearch1-0 -n shop-stage"
+          },
+          {
+            "description": "If unauthorized, check the pull secret findings for this namespace"
+          }
+        ],
+        "verify": [
+          "kubectl get pods -n shop-stage | grep elasticsearch1"
+        ]
+      },
+      "pattern_key": "workload-unavailable|StatefulSet|elasticsearch1|ImagePull",
+      "caused_by": [
+        "9cfbaa4a8d30"
+      ]
+    }
+  ]
+}

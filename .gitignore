@@ -1,2 +1,7 @@
 k8s-doctor-mac
 .sfdx/
+
+# build outputs and scratch patches
+/k8s-doctor
+/dist/
+*.patch

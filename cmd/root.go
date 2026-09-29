@@ -6,18 +6,21 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/Codebvoy15/k8s-doctor/internal/diag"
 	"github.com/Codebvoy15/k8s-doctor/internal/output"
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 )
 
 var (
-	clusterName string
-	namespace   string
-	outputFmt   string
-	verbose     bool
-	region      string
-	awsProfile  string
+	kubeContext    string
+	kubeconfigPath string
+	clusterName    string
+	namespace      string
+	outputFmt      string
+	verbose        bool
+	region         string
+	awsProfile     string
 )
 
 var rootCmd = &cobra.Command{
@@ -42,11 +45,23 @@ Examples:
   k8s-doctor triage --cluster prod-us-east-1
 `,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		skip := []string{"help", "list", "__complete", "completion"}
+		skip := []string{"help", "list", "__complete", "completion", "detectors"}
 		for _, s := range skip {
 			if cmd.Name() == s {
 				return nil
 			}
+		}
+		diag.Kubeconfig = kubeconfigPath
+		// New engine commands resolve their own context and never touch the kubeconfig.
+		if cmd.Name() == "scan" || cmd.Name() == "fleet" {
+			return nil
+		}
+		// --context: per-invocation cluster selection, no kubeconfig mutation (safe for scripts and parallel runs)
+		if kubeContext != "" {
+			clusterName = kubeContext
+			diag.KubeContext = kubeContext
+			output.SetContext(cmd.CommandPath(), clusterName, namespace)
+			return nil
 		}
 
 		if clusterName == "" {
@@ -75,7 +90,9 @@ func Execute() {
 }
 
 func init() {
-	rootCmd.PersistentFlags().StringVarP(&clusterName, "cluster", "c", "", "cluster name or kube context (default: active context)")
+	rootCmd.PersistentFlags().StringVarP(&clusterName, "cluster", "c", "", "cluster name or kube context; legacy commands switch the kubeconfig's current context (prefer --context)")
+	rootCmd.PersistentFlags().StringVar(&kubeContext, "context", "", "kube context to use for this run only (does not modify kubeconfig)")
+	rootCmd.PersistentFlags().StringVar(&kubeconfigPath, "kubeconfig", "", "path to kubeconfig (default: $KUBECONFIG or ~/.kube/config)")
 	rootCmd.PersistentFlags().StringVarP(&namespace, "namespace", "n", "", "namespace (default: all)")
 	rootCmd.PersistentFlags().StringVarP(&outputFmt, "output", "o", "terminal", "output format: terminal | json | markdown")
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "show raw commands being run")

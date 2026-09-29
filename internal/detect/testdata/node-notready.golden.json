@@ -1,0 +1,123 @@
+{
+  "schema_version": "1",
+  "cluster": "stage-us-east-1",
+  "captured_at": "2026-09-29T06:00:00Z",
+  "detectors": [
+    "missing-reference",
+    "workload-unavailable",
+    "node-unhealthy"
+  ],
+  "coverage": {
+    "ConfigMap": true,
+    "Event": true,
+    "Node": true,
+    "PersistentVolumeClaim": true,
+    "Pod": true,
+    "Secret": true,
+    "ServiceAccount": true
+  },
+  "counts": {
+    "IMPACTING": 2
+  },
+  "findings": [
+    {
+      "id": "ecb4b0881db4",
+      "detector": "node-unhealthy",
+      "cluster": "stage-us-east-1",
+      "tier": "IMPACTING",
+      "title": "Node ip-10-0-2-7 NotReady (2 pods scheduled)",
+      "summary": "The node stopped reporting Ready: Kubelet stopped posting node status.. Pods on it are not serving and will be evicted after the toleration timeout.",
+      "subject": {
+        "kind": "Node",
+        "name": "ip-10-0-2-7"
+      },
+      "affected": [
+        {
+          "kind": "Pod",
+          "namespace": "payments",
+          "name": "api-7d9f8c6b5-abcde"
+        },
+        {
+          "kind": "Pod",
+          "namespace": "payments",
+          "name": "api-7d9f8c6b5-fghij"
+        }
+      ],
+      "evidence": [
+        "instance-type=m6i.2xlarge capacity-type=spot zone=us-east-1a os=Amazon Linux 2023",
+        "NotReady for 40m",
+        "Ready=Unknown reason=NodeStatusUnknown: Kubelet stopped posting node status."
+      ],
+      "since": "2026-09-29T05:20:00Z",
+      "remediation": {
+        "steps": [
+          {
+            "description": "Deep node diagnosis (kubelet, EC2/Spot, Karpenter, cgroup)",
+            "command": "./k8s-doctor node pressure -o json"
+          },
+          {
+            "description": "Check the EC2 instance state and status checks in the AWS console (Spot interruption, impaired instance)"
+          },
+          {
+            "description": "If the instance is gone or impaired, cordon and drain so pods reschedule",
+            "command": "kubectl drain ip-10-0-2-7 --ignore-daemonsets --delete-emptydir-data",
+            "mutating": true
+          }
+        ],
+        "verify": [
+          "kubectl get node ip-10-0-2-7"
+        ]
+      },
+      "pattern_key": "node-unhealthy|NotReady",
+      "explains": [
+        "9393b0f48aed"
+      ]
+    },
+    {
+      "id": "9393b0f48aed",
+      "detector": "workload-unavailable",
+      "cluster": "stage-us-east-1",
+      "tier": "IMPACTING",
+      "title": "Deployment payments/api: 2/2 pods unavailable (NotReady)",
+      "summary": "Every pod of deployment api is down. Dominant reason: notready.",
+      "subject": {
+        "kind": "Deployment",
+        "namespace": "payments",
+        "name": "api"
+      },
+      "affected": [
+        {
+          "kind": "Pod",
+          "namespace": "payments",
+          "name": "api-7d9f8c6b5-abcde"
+        },
+        {
+          "kind": "Pod",
+          "namespace": "payments",
+          "name": "api-7d9f8c6b5-fghij"
+        }
+      ],
+      "evidence": [
+        "api-7d9f8c6b5-abcde [NotReady, node ip-10-0-2-7]: phase=Running, no container or event explains it yet",
+        "api-7d9f8c6b5-fghij [NotReady, node ip-10-0-2-7]: phase=Running, no container or event explains it yet",
+        "down since about 19d ago"
+      ],
+      "since": "2026-09-10T00:00:00Z",
+      "remediation": {
+        "steps": [
+          {
+            "description": "Inspect the pod",
+            "command": "kubectl describe pod api-7d9f8c6b5-abcde -n payments"
+          }
+        ],
+        "verify": [
+          "kubectl get pods -n payments | grep api"
+        ]
+      },
+      "pattern_key": "workload-unavailable|Deployment|api|NotReady",
+      "caused_by": [
+        "ecb4b0881db4"
+      ]
+    }
+  ]
+}

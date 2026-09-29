@@ -299,7 +299,7 @@ func printEntryList(title string, entries []diag.InventoryEntry, ns string) {
 	fmt.Println(color.HiBlackString(strings.Repeat("─", 64)))
 
 	if len(entries) == 0 {
-		fmt.Println("\n  none  ✓\n")
+		fmt.Print("\n  none  ✓\n\n")
 		return
 	}
 

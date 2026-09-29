@@ -1,0 +1,141 @@
+{
+ "schema_version": "1",
+ "cluster": "stage-us-east-1",
+ "captured_at": "2026-09-29T06:00:00Z",
+ "collected": {
+  "Pod": true,
+  "Node": true,
+  "Secret": true,
+  "ConfigMap": true,
+  "PersistentVolumeClaim": true,
+  "ServiceAccount": true,
+  "Event": true
+ },
+ "pods": [
+  {
+   "namespace": "shop-stage",
+   "name": "elasticsearch1-0",
+   "node": "ip-10-0-1-9",
+   "phase": "Pending",
+   "ready": false,
+   "service_account": "default",
+   "owner": {
+    "kind": "StatefulSet",
+    "name": "elasticsearch1"
+   },
+   "created_at": "2026-09-29T04:30:00Z",
+   "containers": [
+    {
+     "name": "elasticsearch",
+     "image": "artifactory.example.com/es:7.17",
+     "image_id": "",
+     "ready": false,
+     "restarts": 0,
+     "state": "waiting",
+     "reason": "ImagePullBackOff",
+     "message": "Back-off pulling image \"artifactory.example.com/es:7.17\""
+    }
+   ],
+   "refs": [
+    {
+     "kind": "Secret",
+     "name": "shop-registry-cred",
+     "via": "imagePullSecret"
+    }
+   ]
+  },
+  {
+   "namespace": "shop-stage",
+   "name": "web-69d45cd5c9-jktk8",
+   "node": "ip-10-0-1-5",
+   "phase": "Running",
+   "ready": false,
+   "service_account": "default",
+   "owner": {
+    "kind": "ReplicaSet",
+    "name": "web-69d45cd5c9"
+   },
+   "created_at": "2026-09-10T00:00:00Z",
+   "containers": [
+    {
+     "name": "web",
+     "image": "artifactory.example.com/app:1.0",
+     "image_id": "artifactory.example.com/app@sha256:1",
+     "ready": false,
+     "restarts": 0,
+     "state": "running"
+    }
+   ],
+   "refs": []
+  }
+ ],
+ "nodes": [
+  {
+   "name": "ip-10-0-1-5",
+   "ready": true,
+   "conditions": [
+    {
+     "type": "Ready",
+     "status": "True"
+    }
+   ],
+   "labels": {
+    "node.kubernetes.io/instance-type": "m6i.2xlarge",
+    "karpenter.sh/capacity-type": "spot",
+    "topology.kubernetes.io/zone": "us-east-1a"
+   },
+   "os_image": "Amazon Linux 2023",
+   "created_at": "2026-09-20T00:00:00Z"
+  },
+  {
+   "name": "ip-10-0-1-9",
+   "ready": true,
+   "conditions": [
+    {
+     "type": "Ready",
+     "status": "True"
+    }
+   ],
+   "labels": {
+    "node.kubernetes.io/instance-type": "m6i.2xlarge",
+    "karpenter.sh/capacity-type": "spot",
+    "topology.kubernetes.io/zone": "us-east-1a"
+   },
+   "os_image": "Amazon Linux 2023",
+   "created_at": "2026-09-20T00:00:00Z"
+  }
+ ],
+ "secrets": [],
+ "configmaps": [],
+ "pvcs": [],
+ "service_accounts": [
+  {
+   "namespace": "shop-stage",
+   "name": "default"
+  }
+ ],
+ "events": [
+  {
+   "namespace": "shop-stage",
+   "kind": "Pod",
+   "name": "elasticsearch1-0",
+   "type": "Warning",
+   "reason": "FailedToRetrieveImagePullSecret",
+   "message": "Unable to retrieve some image pull secrets (shop-registry-cred); attempting to pull the image may not succeed.",
+   "count": 32,
+   "first_seen": "2026-09-29T04:31:00Z",
+   "last_seen": "2026-09-29T06:00:00Z"
+  },
+  {
+   "namespace": "shop-stage",
+   "kind": "Pod",
+   "name": "web-69d45cd5c9-jktk8",
+   "type": "Warning",
+   "reason": "Unhealthy",
+   "message": "Readiness probe failed: HTTP probe failed with statuscode: 502",
+   "count": 11,
+   "first_seen": "2026-09-29T04:35:00Z",
+   "last_seen": "2026-09-29T06:00:00Z"
+  }
+ ]
+}

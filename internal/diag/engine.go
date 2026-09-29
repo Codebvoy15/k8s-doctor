@@ -63,9 +63,19 @@ type Engine struct {
 	restCfg   *rest.Config
 }
 
+// KubeContext and Kubeconfig, when set (by --context / --kubeconfig), select
+// the cluster per invocation without modifying the kubeconfig's current-context.
+var (
+	KubeContext string
+	Kubeconfig  string
+)
+
 func NewEngine(ctx context.Context, namespace string, verbose bool) (*Engine, error) {
 	rules := clientcmd.NewDefaultClientConfigLoadingRules()
-	overrides := &clientcmd.ConfigOverrides{}
+	if Kubeconfig != "" {
+		rules.ExplicitPath = Kubeconfig
+	}
+	overrides := &clientcmd.ConfigOverrides{CurrentContext: KubeContext}
 	cfg := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(rules, overrides)
 	restCfg, err := cfg.ClientConfig()
 	if err != nil {

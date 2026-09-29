@@ -1,0 +1,20 @@
+version: 2
+
+builds:
+  - id: k8s-doctor
+    binary: k8s-doctor
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    ldflags: ["-s -w"]
+
+archives:
+  # plain binaries (no tarball) so the jump server can curl them directly
+  - formats: [binary]
+    name_template: "k8s-doctor_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc

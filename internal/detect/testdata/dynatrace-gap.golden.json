@@ -1,0 +1,215 @@
+{
+  "schema_version": "1",
+  "cluster": "stage-us-east-1",
+  "captured_at": "2026-09-29T06:00:00Z",
+  "detectors": [
+    "missing-reference",
+    "workload-unavailable",
+    "node-unhealthy"
+  ],
+  "coverage": {
+    "ConfigMap": true,
+    "Event": true,
+    "Node": true,
+    "PersistentVolumeClaim": true,
+    "Pod": true,
+    "Secret": true,
+    "ServiceAccount": true
+  },
+  "counts": {
+    "LATENT": 4
+  },
+  "findings": [
+    {
+      "id": "0b7255decf22",
+      "detector": "missing-reference",
+      "cluster": "stage-us-east-1",
+      "tier": "LATENT",
+      "title": "Missing Secret servicenow/k8s-informer-repo-cred referenced by 1 pod(s)",
+      "summary": "Secret \"k8s-informer-repo-cred\" does not exist in servicenow but 1 running pod(s) reference it (image pull secret). They keep running now and will fail to start when recreated (rollout, reschedule, node replacement). 1/1 have their images already pulled on their current node.",
+      "subject": {
+        "kind": "Secret",
+        "namespace": "servicenow",
+        "name": "k8s-informer-repo-cred"
+      },
+      "affected": [
+        {
+          "kind": "Pod",
+          "namespace": "servicenow",
+          "name": "k8s-informer-prod-5b7d96f597-mmvhp"
+        }
+      ],
+      "evidence": [
+        "Secret servicenow/k8s-informer-repo-cred: absent (the secret list was collected successfully)",
+        "referenced via image pull secret by: k8s-informer-prod-5b7d96f597-mmvhp",
+        "FailedToRetrieveImagePullSecret x27816 on k8s-informer-prod-5b7d96f597-mmvhp: Unable to retrieve some image pull secrets (k8s-informer-repo-cred); attempting to pull the image may not succeed.",
+        "first seen 28d ago"
+      ],
+      "since": "2026-08-31T10:00:00Z",
+      "remediation": {
+        "steps": [
+          {
+            "description": "Confirm it is absent and see which pods need it",
+            "command": "kubectl get secret k8s-informer-repo-cred -n servicenow -o name"
+          },
+          {
+            "description": "Recreate Secret \"k8s-informer-repo-cred\" through its normal provisioning path (operator, pipeline or secret sync), or remove the stale reference from the workload",
+            "mutating": true
+          }
+        ],
+        "verify": [
+          "kubectl get secret k8s-informer-repo-cred -n servicenow -o name",
+          "kubectl get events -n servicenow --field-selector type=Warning | grep k8s-informer-repo-cred   # should stop growing"
+        ]
+      },
+      "pattern_key": "missing-reference|Secret|k8s-informer-repo-cred"
+    },
+    {
+      "id": "3ff148ec99fc",
+      "detector": "missing-reference",
+      "cluster": "stage-us-east-1",
+      "tier": "LATENT",
+      "title": "Missing Secret logging/dynatrace-bootstrapper-config referenced by 1 pod(s)",
+      "summary": "Secret \"dynatrace-bootstrapper-config\" does not exist in logging but 1 running pod(s) reference it (volume dynatrace-input). They keep running now and will fail to start when recreated (rollout, reschedule, node replacement).",
+      "subject": {
+        "kind": "Secret",
+        "namespace": "logging",
+        "name": "dynatrace-bootstrapper-config"
+      },
+      "affected": [
+        {
+          "kind": "Pod",
+          "namespace": "logging",
+          "name": "logging-operator-fluentbit-rjrf8"
+        }
+      ],
+      "evidence": [
+        "Secret logging/dynatrace-bootstrapper-config: absent (the secret list was collected successfully)",
+        "referenced via volume dynatrace-input by: logging-operator-fluentbit-rjrf8",
+        "FailedMount x10368 on logging-operator-fluentbit-rjrf8: MountVolume.SetUp failed for volume \"dynatrace-input\" : secret \"dynatrace-bootstrapper-config\" not found",
+        "first seen 14d ago",
+        "all referencing pods started before the first failure: the secret likely existed and was deleted or stopped syncing around 2026-09-15 02:04 UTC",
+        "likely managed by: Dynatrace Operator (kubectl get dynakube -A; operator logs in the dynatrace namespace)"
+      ],
+      "since": "2026-09-15T02:04:00Z",
+      "remediation": {
+        "steps": [
+          {
+            "description": "Confirm it is absent and see which pods need it",
+            "command": "kubectl get secret dynatrace-bootstrapper-config -n logging -o name"
+          },
+          {
+            "description": "Check the component that should create it: Dynatrace Operator (kubectl get dynakube -A; operator logs in the dynatrace namespace)"
+          },
+          {
+            "description": "Recreate Secret \"dynatrace-bootstrapper-config\" through its normal provisioning path (operator, pipeline or secret sync), or remove the stale reference from the workload",
+            "mutating": true
+          }
+        ],
+        "verify": [
+          "kubectl get secret dynatrace-bootstrapper-config -n logging -o name",
+          "kubectl get events -n logging --field-selector type=Warning | grep dynatrace-bootstrapper-config   # should stop growing"
+        ]
+      },
+      "pattern_key": "missing-reference|Secret|dynatrace-bootstrapper-config"
+    },
+    {
+      "id": "4a06150d6cdf",
+      "detector": "missing-reference",
+      "cluster": "stage-us-east-1",
+      "tier": "LATENT",
+      "title": "Missing Secret servicenow/dynatrace-bootstrapper-config referenced by 1 pod(s)",
+      "summary": "Secret \"dynatrace-bootstrapper-config\" does not exist in servicenow but 1 running pod(s) reference it (volume dynatrace-input). They keep running now and will fail to start when recreated (rollout, reschedule, node replacement).",
+      "subject": {
+        "kind": "Secret",
+        "namespace": "servicenow",
+        "name": "dynatrace-bootstrapper-config"
+      },
+      "affected": [
+        {
+          "kind": "Pod",
+          "namespace": "servicenow",
+          "name": "k8s-informer-prod-5b7d96f597-mmvhp"
+        }
+      ],
+      "evidence": [
+        "Secret servicenow/dynatrace-bootstrapper-config: absent (the secret list was collected successfully)",
+        "referenced via volume dynatrace-input by: k8s-informer-prod-5b7d96f597-mmvhp",
+        "FailedMount x10366 on k8s-informer-prod-5b7d96f597-mmvhp: MountVolume.SetUp failed for volume \"dynatrace-input\" : secret \"dynatrace-bootstrapper-config\" not found",
+        "first seen 14d ago",
+        "all referencing pods started before the first failure: the secret likely existed and was deleted or stopped syncing around 2026-09-15 02:08 UTC",
+        "likely managed by: Dynatrace Operator (kubectl get dynakube -A; operator logs in the dynatrace namespace)"
+      ],
+      "since": "2026-09-15T02:08:00Z",
+      "remediation": {
+        "steps": [
+          {
+            "description": "Confirm it is absent and see which pods need it",
+            "command": "kubectl get secret dynatrace-bootstrapper-config -n servicenow -o name"
+          },
+          {
+            "description": "Check the component that should create it: Dynatrace Operator (kubectl get dynakube -A; operator logs in the dynatrace namespace)"
+          },
+          {
+            "description": "Recreate Secret \"dynatrace-bootstrapper-config\" through its normal provisioning path (operator, pipeline or secret sync), or remove the stale reference from the workload",
+            "mutating": true
+          }
+        ],
+        "verify": [
+          "kubectl get secret dynatrace-bootstrapper-config -n servicenow -o name",
+          "kubectl get events -n servicenow --field-selector type=Warning | grep dynatrace-bootstrapper-config   # should stop growing"
+        ]
+      },
+      "pattern_key": "missing-reference|Secret|dynatrace-bootstrapper-config"
+    },
+    {
+      "id": "7645498e01ff",
+      "detector": "missing-reference",
+      "cluster": "stage-us-east-1",
+      "tier": "LATENT",
+      "title": "Missing Secret kong/dynatrace-bootstrapper-config referenced by 1 pod(s)",
+      "summary": "Secret \"dynatrace-bootstrapper-config\" does not exist in kong but 1 running pod(s) reference it (volume dynatrace-input). They keep running now and will fail to start when recreated (rollout, reschedule, node replacement).",
+      "subject": {
+        "kind": "Secret",
+        "namespace": "kong",
+        "name": "dynatrace-bootstrapper-config"
+      },
+      "affected": [
+        {
+          "kind": "Pod",
+          "namespace": "kong",
+          "name": "kong-gateway-6f84b4cd96-m5rj2"
+        }
+      ],
+      "evidence": [
+        "Secret kong/dynatrace-bootstrapper-config: absent (the secret list was collected successfully)",
+        "referenced via volume dynatrace-input by: kong-gateway-6f84b4cd96-m5rj2",
+        "FailedMount x10365 on kong-gateway-6f84b4cd96-m5rj2: MountVolume.SetUp failed for volume \"dynatrace-input\" : secret \"dynatrace-bootstrapper-config\" not found",
+        "first seen 14d ago",
+        "all referencing pods started before the first failure: the secret likely existed and was deleted or stopped syncing around 2026-09-15 02:10 UTC",
+        "likely managed by: Dynatrace Operator (kubectl get dynakube -A; operator logs in the dynatrace namespace)"
+      ],
+      "since": "2026-09-15T02:10:00Z",
+      "remediation": {
+        "steps": [
+          {
+            "description": "Confirm it is absent and see which pods need it",
+            "command": "kubectl get secret dynatrace-bootstrapper-config -n kong -o name"
+          },
+          {
+            "description": "Check the component that should create it: Dynatrace Operator (kubectl get dynakube -A; operator logs in the dynatrace namespace)"
+          },
+          {
+            "description": "Recreate Secret \"dynatrace-bootstrapper-config\" through its normal provisioning path (operator, pipeline or secret sync), or remove the stale reference from the workload",
+            "mutating": true
+          }
+        ],
+        "verify": [
+          "kubectl get secret dynatrace-bootstrapper-config -n kong -o name",
+          "kubectl get events -n kong --field-selector type=Warning | grep dynatrace-bootstrapper-config   # should stop growing"
+        ]
+      },
+      "pattern_key": "missing-reference|Secret|dynatrace-bootstrapper-config"
+    }
+  ]
+}

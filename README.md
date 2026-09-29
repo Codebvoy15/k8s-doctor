@@ -1,6 +1,41 @@
 # k8s-doctor
 
 SRE-grade Kubernetes troubleshooting CLI. Zero config. Drop binary, run it.
+
+## New in v3.5: detection engine (`scan`, `fleet`)
+
+```bash
+# one cluster: findings ranked by impact, root causes first, symptoms nested
+./k8s-doctor scan --context stage-us-east-1 -n shop -v
+
+# whole fleet: every context in parallel, same failure aggregated into one pattern
+./k8s-doctor fleet --all-contexts
+./k8s-doctor fleet --match prod --exclude sandbox --parallel 12
+
+# save a snapshot (for a ticket, a replay, or a new test fixture) and analyze it offline
+./k8s-doctor scan --save snap.json
+./k8s-doctor scan --from snap.json -o json
+
+./k8s-doctor detectors            # what is checked
+```
+
+Read-only; secret data is never collected; the kubeconfig is never modified.
+Tiers: **IMPACTING** (down now) > **DEGRADED** > **LATENT** (breaks on the next
+restart/reschedule) > **INFO**. See [DESIGN.md](DESIGN.md).
+
+### Install on the jump server (from GitHub releases)
+
+```bash
+curl -fL -o k8s-doctor https://github.com/Codebvoy15/k8s-doctor/releases/latest/download/k8s-doctor_linux_amd64
+chmod +x k8s-doctor && ./k8s-doctor detectors
+```
+
+Releases are built by CI when a `v*` tag is pushed (`git tag v3.5.0 && git push origin v3.5.0`).
+
+---
+
+## Legacy workflow (manual build)
+
 Context switches on the fly. Same workflow as Kluster-bull.
 
 ---

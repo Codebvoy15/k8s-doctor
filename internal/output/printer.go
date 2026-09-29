@@ -175,7 +175,7 @@ func (p *Printer) RootCauseSummary(findings []diag.Finding) {
 
 	switch p.format {
 	case "markdown":
-		fmt.Println("\n---\n\n## root cause\n")
+		fmt.Print("\n---\n\n## root cause\n\n")
 		for i, f := range real {
 			if i >= 3 {
 				break

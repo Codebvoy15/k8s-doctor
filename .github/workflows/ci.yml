@@ -1,0 +1,28 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        run: |
+          out=$(gofmt -l internal/model internal/detect internal/fleet internal/render internal/collect cmd/scan.go cmd/fleet.go)
+          if [ -n "$out" ]; then echo "not gofmt'd:"; echo "$out"; exit 1; fi
+      - name: vet (new engine; legacy packages are linted by go test's vet subset)
+        run: go vet ./internal/model/... ./internal/detect/... ./internal/fleet/... ./internal/render/... ./internal/collect/...
+      - name: test
+        run: go test -race -count=1 ./...
+      - name: build linux/amd64 (jump server target)
+        run: GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -o /tmp/k8s-doctor .
