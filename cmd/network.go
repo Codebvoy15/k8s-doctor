@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/spf13/cobra"
 	"github.com/Codebvoy15/k8s-doctor/internal/diag"
 	"github.com/Codebvoy15/k8s-doctor/internal/output"
+	"github.com/spf13/cobra"
 )
 
 var networkCmd = &cobra.Command{
@@ -22,6 +22,7 @@ var networkDNSCmd = &cobra.Command{
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 		defer cancel()
 		printer := output.NewPrinter(outputFmt)
+		defer printer.Flush()
 		engine, err := diag.NewEngine(ctx, namespace, verbose)
 		if err != nil {
 			return err
@@ -45,6 +46,7 @@ var networkSvcCmd = &cobra.Command{
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 		printer := output.NewPrinter(outputFmt)
+		defer printer.Flush()
 		engine, err := diag.NewEngine(ctx, namespace, verbose)
 		if err != nil {
 			return err
@@ -71,6 +73,7 @@ var networkNetpolCmd = &cobra.Command{
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 		printer := output.NewPrinter(outputFmt)
+		defer printer.Flush()
 		engine, err := diag.NewEngine(ctx, namespace, verbose)
 		if err != nil {
 			return err
@@ -92,6 +95,7 @@ var networkIngressCmd = &cobra.Command{
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 		defer cancel()
 		printer := output.NewPrinter(outputFmt)
+		defer printer.Flush()
 		engine, err := diag.NewEngine(ctx, namespace, verbose)
 		if err != nil {
 			return err

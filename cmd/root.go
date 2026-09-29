@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/Codebvoy15/k8s-doctor/internal/output"
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 )
@@ -55,10 +56,15 @@ Examples:
 			}
 			clusterName = strings.TrimSpace(string(out))
 			fmt.Fprintf(os.Stderr, "context  %s\n", color.HiBlackString(clusterName))
+			output.SetContext(cmd.CommandPath(), clusterName, namespace)
 			return nil
 		}
 
-		return switchContext(clusterName, region, awsProfile, verbose)
+		if err := switchContext(clusterName, region, awsProfile, verbose); err != nil {
+			return err
+		}
+		output.SetContext(cmd.CommandPath(), clusterName, namespace)
+		return nil
 	},
 }
 

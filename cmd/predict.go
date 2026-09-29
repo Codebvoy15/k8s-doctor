@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/spf13/cobra"
 	"github.com/Codebvoy15/k8s-doctor/internal/diag"
 	"github.com/Codebvoy15/k8s-doctor/internal/output"
+	"github.com/spf13/cobra"
 )
 
 var predictCmd = &cobra.Command{
@@ -17,6 +17,7 @@ var predictCmd = &cobra.Command{
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 		defer cancel()
 		printer := output.NewPrinter(outputFmt)
+		defer printer.Flush()
 		engine, err := diag.NewEngine(ctx, namespace, verbose)
 		if err != nil {
 			return err
@@ -54,6 +55,9 @@ var predictCmd = &cobra.Command{
 			printer.Findings(info)
 		}
 
+		if printer.IsJSON() {
+			return nil
+		}
 		if len(critical) == 0 && len(warning) == 0 {
 			fmt.Printf("\n  no predictive risks detected\n\n")
 		}

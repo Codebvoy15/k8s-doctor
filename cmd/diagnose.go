@@ -2,14 +2,16 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
 	"time"
 
+	"github.com/Codebvoy15/k8s-doctor/internal/diag"
+	"github.com/Codebvoy15/k8s-doctor/internal/output"
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
-	"github.com/Codebvoy15/k8s-doctor/internal/diag"
 )
 
 var diagnoseWindow string
@@ -29,11 +31,14 @@ var diagnoseCmd = &cobra.Command{
 			return fmt.Errorf("invalid --window: use 30m, 1h, 2h")
 		}
 
-		fmt.Printf("\ndiagnose  cluster=%s  %s\n",
-			color.New(color.FgWhite, color.Bold).Sprint(clusterName),
-			color.HiBlackString(time.Now().Format("15:04:05")),
-		)
-		fmt.Fprintln(os.Stderr, color.HiBlackString(strings.Repeat("─", 72)))
+		jsonOut := outputFmt == "json"
+		if !jsonOut {
+			fmt.Printf("\ndiagnose  cluster=%s  %s\n",
+				color.New(color.FgWhite, color.Bold).Sprint(clusterName),
+				color.HiBlackString(time.Now().Format("15:04:05")),
+			)
+			fmt.Fprintln(os.Stderr, color.HiBlackString(strings.Repeat("─", 72)))
+		}
 
 		fmt.Fprintln(os.Stderr, color.HiBlackString("  checking pod health..."))
 		podFindings, _ := engine.PodHealth()
@@ -72,6 +77,10 @@ var diagnoseCmd = &cobra.Command{
 			for j := i; j > 0 && activeFaults[j].Score > activeFaults[j-1].Score; j-- {
 				activeFaults[j], activeFaults[j-1] = activeFaults[j-1], activeFaults[j]
 			}
+		}
+
+		if jsonOut {
+			return printDiagnoseJSON(activeFaults, diffs, auditEntries)
 		}
 
 		if len(activeFaults) == 0 && len(diffs) == 0 {
@@ -187,12 +196,82 @@ var diagnoseCmd = &cobra.Command{
 }
 
 type RootCause struct {
-	Conclusion string
-	Evidence   string
-	ChangedBy  string
-	ChangedAt  string
-	Remedy     string
-	Confidence int
+	Conclusion string `json:"conclusion"`
+	Evidence   string `json:"evidence,omitempty"`
+	ChangedBy  string `json:"changed_by,omitempty"`
+	ChangedAt  string `json:"changed_at,omitempty"`
+	Remedy     string `json:"remedy,omitempty"`
+	Confidence int    `json:"confidence"`
+}
+
+type diagnoseChange struct {
+	Timestamp       string `json:"timestamp,omitempty"`
+	Kind            string `json:"kind"`
+	Name            string `json:"name"`
+	Namespace       string `json:"namespace,omitempty"`
+	Field           string `json:"field"`
+	OldValue        string `json:"old_value,omitempty"`
+	NewValue        string `json:"new_value,omitempty"`
+	ChangedBy       string `json:"changed_by,omitempty"`
+	CorrelatedFault string `json:"correlated_fault,omitempty"`
+	Mitigation      string `json:"mitigation,omitempty"`
+	Risk            string `json:"risk,omitempty"`
+}
+
+type diagnoseDoc struct {
+	SchemaVersion string           `json:"schema_version"`
+	Command       string           `json:"command"`
+	Cluster       string           `json:"cluster"`
+	Namespace     string           `json:"namespace,omitempty"`
+	Window        string           `json:"window"`
+	GeneratedAt   string           `json:"generated_at"`
+	Faults        []diag.Finding   `json:"faults"`
+	Changes       []diagnoseChange `json:"changes"`
+	RootCause     RootCause        `json:"root_cause"`
+}
+
+// printDiagnoseJSON emits the whole diagnosis as one JSON document on stdout.
+// Changes are not truncated (terminal view shows 5); secrets are already masked by deep_diff.
+func printDiagnoseJSON(faults []diag.Finding, diffs []diag.DeepDiffEntry, audit []diag.AuditEntry) error {
+	doc := diagnoseDoc{
+		SchemaVersion: output.SchemaVersion,
+		Command:       "k8s-doctor diagnose",
+		Cluster:       clusterName,
+		Namespace:     namespace,
+		Window:        diagnoseWindow,
+		GeneratedAt:   time.Now().UTC().Format(time.RFC3339),
+		Faults:        faults,
+		Changes:       []diagnoseChange{},
+	}
+	if doc.Faults == nil {
+		doc.Faults = []diag.Finding{}
+	}
+	for _, d := range diffs {
+		if strings.Contains(d.OldValue, "use --save") {
+			continue
+		}
+		ts := ""
+		if !d.Timestamp.IsZero() {
+			ts = d.Timestamp.UTC().Format(time.RFC3339)
+		}
+		doc.Changes = append(doc.Changes, diagnoseChange{
+			Timestamp: ts, Kind: d.Kind, Name: d.Name, Namespace: d.Namespace,
+			Field: d.Field, OldValue: d.OldValue, NewValue: d.NewValue,
+			ChangedBy: d.ChangedBy, CorrelatedFault: d.CorrelatedFault,
+			Mitigation: d.Mitigation, Risk: d.Risk,
+		})
+	}
+	if len(faults) == 0 && len(doc.Changes) == 0 {
+		doc.RootCause = RootCause{Conclusion: "no active problems and no recent changes", Confidence: 0}
+	} else {
+		doc.RootCause = correlateRootCause(faults, diffs, audit)
+	}
+	b, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return err
+	}
+	fmt.Println(string(b))
+	return nil
 }
 
 func correlateRootCause(faults []diag.Finding, diffs []diag.DeepDiffEntry, audit []diag.AuditEntry) RootCause {

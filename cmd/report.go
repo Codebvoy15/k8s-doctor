@@ -9,10 +9,10 @@ import (
 	"os"
 	"time"
 
-	"github.com/fatih/color"
-	"github.com/spf13/cobra"
 	"github.com/Codebvoy15/k8s-doctor/internal/diag"
 	"github.com/Codebvoy15/k8s-doctor/internal/output"
+	"github.com/fatih/color"
+	"github.com/spf13/cobra"
 )
 
 var (
@@ -52,6 +52,7 @@ var reportCmd = &cobra.Command{
 			outFmt = "markdown"
 		}
 		printer := output.NewPrinter(outFmt)
+		defer printer.Flush()
 		engine, err := diag.NewEngine(ctx, namespace, verbose)
 		if err != nil {
 			return err

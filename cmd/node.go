@@ -2,14 +2,15 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
-	"github.com/fatih/color"
-	"github.com/spf13/cobra"
 	"github.com/Codebvoy15/k8s-doctor/internal/diag"
 	"github.com/Codebvoy15/k8s-doctor/internal/output"
+	"github.com/fatih/color"
+	"github.com/spf13/cobra"
 )
 
 var nodeCmd = &cobra.Command{
@@ -33,6 +34,7 @@ var nodePressureCmd = &cobra.Command{
 		if err != nil {
 			// fallback to old NodePressure if NodeDiagnoseAll not available
 			printer := output.NewPrinter(outputFmt)
+			defer printer.Flush()
 			printer.Header("node pressure  cluster=%s", clusterName)
 			findings, err2 := engine.NodePressure()
 			if err2 != nil {
@@ -48,6 +50,23 @@ var nodePressureCmd = &cobra.Command{
 			if !d.Ready {
 				notReady++
 			}
+		}
+
+		if outputFmt == "json" {
+			b, err := json.MarshalIndent(map[string]interface{}{
+				"schema_version": output.SchemaVersion,
+				"command":        "k8s-doctor node pressure",
+				"cluster":        clusterName,
+				"generated_at":   time.Now().UTC().Format(time.RFC3339),
+				"total_nodes":    len(diagnoses),
+				"not_ready":      notReady,
+				"nodes":          diagnoses,
+			}, "", "  ")
+			if err != nil {
+				return err
+			}
+			fmt.Println(string(b))
+			return nil
 		}
 
 		fmt.Printf("\nnode pressure  cluster=%s  %s\n",
@@ -288,6 +307,7 @@ var nodeTaintsCmd = &cobra.Command{
 		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 		defer cancel()
 		printer := output.NewPrinter(outputFmt)
+		defer printer.Flush()
 		engine, err := diag.NewEngine(ctx, namespace, verbose)
 		if err != nil {
 			return err

@@ -7,13 +7,75 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fatih/color"
 	"github.com/Codebvoy15/k8s-doctor/internal/diag"
+	"github.com/fatih/color"
 )
 
-type Printer struct{ format string }
+type Printer struct {
+	format string
+	doc    *Document
+}
 
-func NewPrinter(format string) *Printer { return &Printer{format: format} }
+// Document is the single JSON envelope emitted in -o json mode.
+// Every command that uses Printer emits exactly one Document on stdout,
+// so the output can be parsed as one value (by jq, an MCP server, or an LLM).
+type Document struct {
+	SchemaVersion string         `json:"schema_version"`
+	Command       string         `json:"command,omitempty"`
+	Cluster       string         `json:"cluster,omitempty"`
+	Namespace     string         `json:"namespace,omitempty"`
+	Title         string         `json:"title,omitempty"`
+	GeneratedAt   string         `json:"generated_at"`
+	Sections      []Section      `json:"sections"`
+	RootCause     []diag.Finding `json:"root_cause"`
+}
+
+type Section struct {
+	Name     string         `json:"name"`
+	Findings []diag.Finding `json:"findings"`
+}
+
+// SchemaVersion is bumped whenever the Document shape changes incompatibly.
+const SchemaVersion = "1"
+
+var runContext struct{ command, cluster, namespace string }
+
+// SetContext records the command path and target cluster/namespace so the
+// JSON envelope is self-describing. Called once from the root PersistentPreRunE.
+func SetContext(command, cluster, namespace string) {
+	runContext.command, runContext.cluster, runContext.namespace = command, cluster, namespace
+}
+
+func NewPrinter(format string) *Printer {
+	p := &Printer{format: format}
+	if format == "json" {
+		p.doc = &Document{
+			SchemaVersion: SchemaVersion,
+			Command:       runContext.command,
+			Cluster:       runContext.cluster,
+			Namespace:     runContext.namespace,
+			GeneratedAt:   time.Now().UTC().Format(time.RFC3339),
+			Sections:      []Section{},
+			RootCause:     []diag.Finding{},
+		}
+	}
+	return p
+}
+
+// IsJSON reports whether the printer is collecting a JSON document.
+// Commands use it to suppress ad-hoc fmt.Print output that would corrupt stdout.
+func (p *Printer) IsJSON() bool { return p.format == "json" }
+
+// Flush writes the collected JSON document. No-op for other formats.
+// Call it with defer right after NewPrinter.
+func (p *Printer) Flush() {
+	if p.doc == nil {
+		return
+	}
+	b, _ := json.MarshalIndent(p.doc, "", "  ")
+	fmt.Println(string(b))
+	p.doc = nil
+}
 
 func (p *Printer) Header(format string, args ...interface{}) {
 	title := fmt.Sprintf(format, args...)
@@ -21,6 +83,7 @@ func (p *Printer) Header(format string, args ...interface{}) {
 	case "markdown":
 		fmt.Printf("# %s\n_generated: %s_\n\n", title, time.Now().Format("2006-01-02 15:04:05"))
 	case "json":
+		p.doc.Title = title
 	default:
 		fmt.Printf("\n%s  %s\n",
 			color.New(color.FgWhite, color.Bold).Sprint(strings.ToLower(title)),
@@ -35,6 +98,7 @@ func (p *Printer) Section(label string) {
 	case "markdown":
 		fmt.Printf("\n## %s\n\n", label)
 	case "json":
+		p.doc.Sections = append(p.doc.Sections, Section{Name: label, Findings: []diag.Finding{}})
 	default:
 		fmt.Printf("\n%s\n", color.New(color.Bold).Sprint(strings.ToUpper(label)))
 	}
@@ -43,8 +107,12 @@ func (p *Printer) Section(label string) {
 func (p *Printer) Findings(findings []diag.Finding) {
 	switch p.format {
 	case "json":
-		b, _ := json.MarshalIndent(findings, "", "  ")
-		fmt.Println(string(b))
+		// Commands without an explicit Section get a single default one.
+		if len(p.doc.Sections) == 0 {
+			p.doc.Sections = append(p.doc.Sections, Section{Name: "findings", Findings: []diag.Finding{}})
+		}
+		last := &p.doc.Sections[len(p.doc.Sections)-1]
+		last.Findings = append(last.Findings, findings...)
 	case "markdown":
 		for _, f := range findings {
 			sev := "info"
@@ -103,7 +171,7 @@ func (p *Printer) RootCauseSummary(findings []diag.Finding) {
 	if len(real) == 0 {
 		return
 	}
-	sort.Slice(real, func(i, j int) bool { return real[i].Score > real[j].Score })
+	sort.SliceStable(real, func(i, j int) bool { return real[i].Score > real[j].Score })
 
 	switch p.format {
 	case "markdown":
@@ -121,12 +189,8 @@ func (p *Printer) RootCauseSummary(findings []diag.Finding) {
 			}
 		}
 	case "json":
-		top := real
-		if len(top) > 5 {
-			top = top[:5]
-		}
-		b, _ := json.MarshalIndent(map[string]interface{}{"top_findings": top}, "", "  ")
-		fmt.Println(string(b))
+		// Full ranked list (not truncated): the consumer decides how many to show.
+		p.doc.RootCause = real
 	default:
 		fmt.Printf("\n%s\n", color.New(color.Bold).Sprint("ROOT CAUSE"))
 		fmt.Println(color.HiBlackString(strings.Repeat("─", 72)))

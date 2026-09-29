@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/spf13/cobra"
 	"github.com/Codebvoy15/k8s-doctor/internal/diag"
 	"github.com/Codebvoy15/k8s-doctor/internal/output"
+	"github.com/spf13/cobra"
 )
 
 var triageCmd = &cobra.Command{
@@ -17,6 +17,7 @@ var triageCmd = &cobra.Command{
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 		printer := output.NewPrinter(outputFmt)
+		defer printer.Flush()
 		engine, err := diag.NewEngine(ctx, namespace, verbose)
 		if err != nil {
 			return err
