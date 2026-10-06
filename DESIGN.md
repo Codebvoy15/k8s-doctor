@@ -1,6 +1,6 @@
 # k8s-doctor: fleet detection engine
 
-Status: Phase 1 implemented (`scan`, `fleet`), v3.6 calibrated on the first real fleet run · Last updated: 2026-09-29
+Status: Phase 1 implemented (`scan`, `fleet`), v3.6 calibrated on the first real fleet run; v3.7 adds resource-pressure attribution · Last updated: 2026-10-06
 
 ## Problem
 
@@ -54,9 +54,14 @@ fleet: N contexts, bounded parallelism, per-cluster timeout ──────�
 
 ### Snapshot (`internal/model`)
 A small, versioned, serializable view of the cluster (`schema_version: 1`):
-pods (status, owner, and every object they reference), nodes (conditions,
-curated labels), secret and configmap **names**, PVCs, service accounts,
-and warning events.
+pods (status, owner, every object they reference, container requests/limits,
+QoS), nodes (conditions, curated labels, allocatable), secret and configmap
+**names**, PVCs, service accounts, warning events, workloads (with the operator
+CR or Helm release that owns them), HPAs, and one metrics-server usage sample.
+
+- Fields added in v3.7 are additive and optional. A snapshot without them
+  (older file, metrics-server missing) leaves the resource detectors silent:
+  `resources: nil` means "not recorded", never "none set".
 
 - It has **no Kubernetes library dependency**. The whole detection engine
   builds and tests with the standard library only.
@@ -93,6 +98,15 @@ type Detector interface {
 | `workload-unavailable` | Workloads below desired availability, judged from the **controller's own status** (desired vs ready); pods only explain *why* (crash, OOM, image pull, unschedulable, probe, mount, no pods at all). Also chronic restarts on Ready pods | 0 ready = IMPACTING; some ready, or restarted/OOMKilled within the last hour = DEGRADED. Scaled to 0 or rollout leftovers are not outages |
 | `node-unhealthy` | NotReady / pressure / cordoned nodes | NotReady with pods = IMPACTING; pressure = DEGRADED; cordoned = INFO |
 | `failed-pods` | Pods left in phase Failed (evicted, node shutdown), classified by cause | Evicted for the workload's **own** storage limit (emptyDir sizeLimit, ephemeral-storage) = LATENT, since it recurs; node-pressure evictions and other leftovers = INFO |
+| `resource-requests` | Workloads using far more memory/CPU than they request, or requesting none (BestEffort). Thresholds: >=1Gi memory or >=1 core used, and no request or usage >=2x the request. The fix targets whoever owns the pod template: an operator CR (CFK `spec.podTemplate.resources`; others via `kubectl explain`), Helm values, or the workload | LATENT: nothing is down, but nodes are packed blind and these pods are evicted first |
+| `node-saturation` | Nodes at >=85% of allocatable memory or CPU, with requested vs used and the pods using unrequested capacity | Memory = LATENT (eviction/OOM next); CPU = INFO (compressible: throttles, never evicts) |
+| `cpu-hotspot` | Deployments/StatefulSets where one replica uses >=1 core and >=50% of its node's CPU, with HPA state, replica imbalance (>=2x) and restarts | No HPA, or HPA at max = LATENT; HPA with headroom, or HPAs not collected = INFO |
+
+**Resource sizing.** Proposed numbers are a starting point from one sample:
+memory = peak replica x1.2 (rounded to 256Mi), also as the limit, since memory
+is not compressible; CPU = **mean** across replicas (sizing every replica for
+the busiest one reserves CPU the others never use), no CPU limit. Every plan
+says to confirm against p95/peak history first.
 
 **Finding identity.** `id` is a fingerprint of detector + cluster + subject,
 so the same problem gets the same ID every run. Phase 2's findings store
@@ -110,6 +124,12 @@ node with disk pressure, or a 502 readiness failure next to a broken
 backend: that link needs the service graph (Phase 3), and we do not guess.
 The cause inherits the symptom's tier and sorts first.
 
+Resource pressure uses the same rule with arithmetic as the proof: a
+`node-saturation` finding is `caused_by` a `resource-requests` or `cpu-hotspot`
+finding only when one of that workload's pods is on the node and its measured
+usage beyond its request, **for the same resource**, is listed. A memory-only
+finding is never linked to a CPU-saturated node.
+
 ### Fleet (`internal/fleet`)
 Bounded parallelism (default 8), a per-cluster timeout (default 2m),
 contexts honored for cancellation, panics contained per cluster, stable
@@ -119,7 +139,10 @@ patterns (occurring 2+ times), sorted by worst tier, then breadth.
 ## Safety model
 
 1. Read-only verbs only (`list`, `get`); there are no write code paths in
-   `scan` or `fleet`.
+   `scan` or `fleet`. v3.7 additionally reads `horizontalpodautoscalers`
+   (autoscaling) and `pods`/`nodes` in `metrics.k8s.io`; when either is
+   forbidden, the kind is recorded as not collected and the dependent checks
+   are skipped.
 2. No secret data is collected (metadata API). Snapshot files are written
    `0600`.
 3. Remediation steps that mutate are flagged `mutating: true` and shown
@@ -146,6 +169,8 @@ patterns (occurring 2+ times), sorted by worst tier, then breadth.
 | 2026-09-29 | Evicted pod of a Deployment scaled to 0/0 reported as an IMPACTING outage | Availability from controller status; Failed pods are tombstones classified by cause | `TestEvictedTombstoneOfScaledDownDeployment` |
 | 2026-09-29 | 915-restart OOM loop reported as "recent OOMKills, down since 2m" | Chronic restart detection (restarts ≥ 10) on Ready pods | `TestChronicOOMIsCalledChronic` |
 | 2026-09-29 | A single-cluster IMPACTING finding was hidden in the fleet view | "Needs attention" list of root causes not covered by patterns | `TestFleetShowsSingleClusterImpacting` |
+| 2026-10-06 | Weekly review: 26 high-memory alerts on a dev cluster; a node at 100% memory had 41% requested. Root cause found by hand: a Kafka platform (CFK) deployed with no requests/limits | `resource-requests` + `node-saturation` with operator-aware fixes and node attribution | `TestMemoryOvercommitAttribution`, `TestResizeGoesWhereItSticks` |
+| 2026-10-06 | Weekly review: 75 intermittent high-CPU alerts on a prod cluster; one API replica used 2.5 of 4 cores, no requests, no HPA, 2x replica imbalance | `cpu-hotspot` with HPA/imbalance/restart context; CPU sizing from the replica mean | `TestCPUHotspotScalingContext` |
 
 Every false positive or understated finding from a real run becomes a row here and a test.
 
@@ -164,7 +189,7 @@ Every false positive or understated finding from a real run becomes a row here a
 | Phase | Scope |
 |---|---|
 | 1 ✅ | Snapshot, detector framework, 3 detectors, `scan`, `fleet`, `--context`, CI, goreleaser |
-| 2 | Findings store (SQLite): first seen, last seen, trend, resolved/regressed; daily digest; cordon and secret age |
+| 2 | Findings store (SQLite): first seen, last seen, trend, resolved/regressed; daily digest; cordon and secret age; per-namespace owner routing (team report for app owners); p95/peak usage from Sysdig to replace the single metrics-server sample in sizing |
 | 3 | Resource graph (service → endpoints → pods, owner chains) for RCA; pre/post-upgrade diff gate; detectors from incident history (Karpenter interruption queue, operator RBAC, addon image drift, ExternalName/CoreDNS) |
 | 4 | MCP server over scan/fleet; k8s-triage skill on top; eval harness replaying incident snapshots; fix plans with server-side dry-run |
 

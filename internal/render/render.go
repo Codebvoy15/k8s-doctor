@@ -93,7 +93,8 @@ func Report(w io.Writer, r detect.Report, o Options) {
 			continue // symptoms are printed under their cause
 		}
 		k := f.PatternKey
-		if k == "" || f.Detector == "workload-unavailable" {
+		// collapsing is per namespace; node-level findings are listed one per node
+		if k == "" || f.Detector == "workload-unavailable" || f.Detector == "node-saturation" {
 			k = f.ID
 		}
 		if groups[k] == nil {

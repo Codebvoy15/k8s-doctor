@@ -97,6 +97,20 @@ func (d NodeUnhealthy) base(ix *model.Index, n model.Node, cond string, pods []m
 		affected = append(affected, podRef(p))
 	}
 	var ev []string
+	if meta := nodeMeta(n); meta != "" {
+		ev = append(ev, meta)
+	}
+	return Finding{
+		ID:         Fingerprint(d.ID(), ix.S.Cluster, n.Name, cond),
+		Subject:    ObjectRef{Kind: model.KindNode, Name: n.Name},
+		Affected:   affected,
+		Evidence:   ev,
+		PatternKey: "node-unhealthy|" + cond,
+	}
+}
+
+// nodeMeta is a one-line identity for a node: instance type, capacity type, pool, zone, OS.
+func nodeMeta(n model.Node) string {
 	var meta []string
 	for _, k := range []string{"node.kubernetes.io/instance-type", "karpenter.sh/capacity-type", "karpenter.sh/nodepool", "topology.kubernetes.io/zone"} {
 		if v := n.Labels[k]; v != "" {
@@ -106,16 +120,7 @@ func (d NodeUnhealthy) base(ix *model.Index, n model.Node, cond string, pods []m
 	if n.OSImage != "" {
 		meta = append(meta, "os="+n.OSImage)
 	}
-	if len(meta) > 0 {
-		ev = append(ev, strings.Join(meta, " "))
-	}
-	return Finding{
-		ID:         Fingerprint(d.ID(), ix.S.Cluster, n.Name, cond),
-		Subject:    ObjectRef{Kind: model.KindNode, Name: n.Name},
-		Affected:   affected,
-		Evidence:   ev,
-		PatternKey: "node-unhealthy|" + cond,
-	}
+	return strings.Join(meta, " ")
 }
 
 func condition(n model.Node, t string) model.Condition {

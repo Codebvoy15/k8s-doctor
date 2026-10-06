@@ -1,0 +1,454 @@
+{
+  "schema_version": "1",
+  "cluster": "dev-data-platform",
+  "captured_at": "2026-10-06T07:45:00Z",
+  "detectors": [
+    "missing-reference",
+    "workload-unavailable",
+    "node-unhealthy",
+    "failed-pods",
+    "resource-requests",
+    "node-saturation",
+    "cpu-hotspot"
+  ],
+  "coverage": {
+    "ConfigMap": true,
+    "DaemonSet": true,
+    "Deployment": true,
+    "Event": true,
+    "HorizontalPodAutoscaler": true,
+    "Node": true,
+    "NodeMetrics": true,
+    "PersistentVolumeClaim": true,
+    "Pod": true,
+    "PodMetrics": true,
+    "Secret": true,
+    "ServiceAccount": true,
+    "StatefulSet": true
+  },
+  "counts": {
+    "DEGRADED": 1,
+    "LATENT": 7
+  },
+  "findings": [
+    {
+      "id": "dbb344c6ea7b",
+      "detector": "workload-unavailable",
+      "cluster": "dev-data-platform",
+      "tier": "DEGRADED",
+      "title": "Deployment orders-cdc/cdc-orders: chronic OOMKills (50 restarts)",
+      "summary": "Pods keep restarting (up to 50 times) and restarted again within the last hour. Each OOMKill drops in-flight work (for log shippers: buffered logs). The memory limit is too low for the steady-state load, or there is a leak.",
+      "subject": {
+        "kind": "Deployment",
+        "namespace": "orders-cdc",
+        "name": "cdc-orders"
+      },
+      "affected": [
+        {
+          "kind": "Pod",
+          "namespace": "orders-cdc",
+          "name": "cdc-orders-7f4c9d2a1b-q8wzn"
+        }
+      ],
+      "evidence": [
+        "cdc-orders-7f4c9d2a1b-q8wzn [OOMKilled, node ip-10-0-1-11.ec2.internal]: container app restarted 7m ago (OOMKilled), restarts=50; Ready again now",
+        "last restart 7m ago"
+      ],
+      "remediation": {
+        "steps": [
+          {
+            "description": "Read the crash output from the previous container instance",
+            "command": "kubectl logs cdc-orders-7f4c9d2a1b-q8wzn -n orders-cdc --previous --tail=100"
+          },
+          {
+            "description": "Check exit code, reason and limits",
+            "command": "kubectl describe pod cdc-orders-7f4c9d2a1b-q8wzn -n orders-cdc"
+          }
+        ],
+        "verify": [
+          "kubectl get pods -n orders-cdc | grep cdc-orders"
+        ]
+      },
+      "pattern_key": "workload-unavailable|Deployment|cdc-orders|OOMKilled"
+    },
+    {
+      "id": "a14c0c6bf74e",
+      "detector": "resource-requests",
+      "cluster": "dev-data-platform",
+      "tier": "LATENT",
+      "title": "StatefulSet confluent/kraftcontroller: uses 8.1Gi memory with no memory request (BestEffort)",
+      "summary": "The scheduler places pods by their requests, so it sees this workload as needing no memory at all while it uses 8.1Gi. The nodes it lands on get packed past their capacity, which is what node memory alerts report. With no requests at all the pods are BestEffort: under node memory pressure the kubelet evicts them first.",
+      "subject": {
+        "kind": "StatefulSet",
+        "namespace": "confluent",
+        "name": "kraftcontroller"
+      },
+      "affected": [
+        {
+          "kind": "Pod",
+          "namespace": "confluent",
+          "name": "kraftcontroller-2"
+        },
+        {
+          "kind": "Pod",
+          "namespace": "confluent",
+          "name": "kraftcontroller-0"
+        },
+        {
+          "kind": "Pod",
+          "namespace": "confluent",
+          "name": "kraftcontroller-1"
+        }
+      ],
+      "evidence": [
+        "requests per pod: memory none, cpu none; memory limit none; QoS BestEffort",
+        "kraftcontroller-2 [node ip-10-0-1-14.ec2.internal, 13% of its memory]: memory 8.1Gi (requested none), cpu 23m (requested none)",
+        "kraftcontroller-0 [node ip-10-0-1-12.ec2.internal, 6% of its memory]: memory 3.7Gi (requested none), cpu 12m (requested none)",
+        "kraftcontroller-1 [node ip-10-0-1-11.ec2.internal, 5% of its memory]: memory 3.1Gi (requested none), cpu 15m (requested none)",
+        "pod template owned by KRaftController kraftcontroller (platform.confluent.io/v1beta1): edits to the statefulset are reverted by the operator",
+        "usage is one metrics-server sample (memory = working set, includes active page cache)"
+      ],
+      "remediation": {
+        "steps": [
+          {
+            "description": "Confirm the numbers against p95/peak usage over 7-14 days (Sysdig) before applying; this scan saw a single sample. Proposed starting point: requests: {memory: 9984Mi}, limits: {memory: 9984Mi}"
+          },
+          {
+            "description": "Set the resources in the Confluent for Kubernetes KRaftController CR \"kraftcontroller\" under spec.podTemplate.resources (CFK owns the statefulset and reverts direct edits); for Kafka/Connect/ksqlDB also align the JVM heap (-Xmx) with the new limit",
+            "command": "kubectl edit kraftcontroller kraftcontroller -n confluent",
+            "mutating": true
+          }
+        ],
+        "verify": [
+          "kubectl get pods -n confluent -o custom-columns=NAME:.metadata.name,QOS:.status.qosClass | grep kraftcontroller"
+        ]
+      },
+      "pattern_key": "resource-requests|memory-none|StatefulSet|kraftcontroller",
+      "explains": [
+        "aab864cceb33"
+      ]
+    },
+    {
+      "id": "326b7ed12d06",
+      "detector": "resource-requests",
+      "cluster": "dev-data-platform",
+      "tier": "LATENT",
+      "title": "StatefulSet confluent/test-connect-1: uses 10.9Gi memory with no memory request (BestEffort)",
+      "summary": "The scheduler places pods by their requests, so it sees this workload as needing no memory at all while it uses 10.9Gi. The nodes it lands on get packed past their capacity, which is what node memory alerts report. With no requests at all the pods are BestEffort: under node memory pressure the kubelet evicts them first.",
+      "subject": {
+        "kind": "StatefulSet",
+        "namespace": "confluent",
+        "name": "test-connect-1"
+      },
+      "affected": [
+        {
+          "kind": "Pod",
+          "namespace": "confluent",
+          "name": "test-connect-1-0"
+        },
+        {
+          "kind": "Pod",
+          "namespace": "confluent",
+          "name": "test-connect-1-1"
+        }
+      ],
+      "evidence": [
+        "requests per pod: memory none, cpu none; memory limit none; QoS BestEffort",
+        "test-connect-1-0 [node ip-10-0-1-15.ec2.internal, 18% of its memory]: memory 10.9Gi (requested none), cpu 107m (requested none)",
+        "test-connect-1-1 [node ip-10-0-1-11.ec2.internal, 18% of its memory]: memory 10.8Gi (requested none), cpu 82m (requested none)",
+        "pod template owned by Connect test-connect-1 (platform.confluent.io/v1beta1): edits to the statefulset are reverted by the operator",
+        "usage is one metrics-server sample (memory = working set, includes active page cache)"
+      ],
+      "remediation": {
+        "steps": [
+          {
+            "description": "Confirm the numbers against p95/peak usage over 7-14 days (Sysdig) before applying; this scan saw a single sample. Proposed starting point: requests: {memory: 13568Mi}, limits: {memory: 13568Mi}"
+          },
+          {
+            "description": "Set the resources in the Confluent for Kubernetes Connect CR \"test-connect-1\" under spec.podTemplate.resources (CFK owns the statefulset and reverts direct edits); for Kafka/Connect/ksqlDB also align the JVM heap (-Xmx) with the new limit",
+            "command": "kubectl edit connect test-connect-1 -n confluent",
+            "mutating": true
+          }
+        ],
+        "verify": [
+          "kubectl get pods -n confluent -o custom-columns=NAME:.metadata.name,QOS:.status.qosClass | grep test-connect-1"
+        ]
+      },
+      "pattern_key": "resource-requests|memory-none|StatefulSet|test-connect-1",
+      "explains": [
+        "aab864cceb33"
+      ]
+    },
+    {
+      "id": "babf72628a58",
+      "detector": "resource-requests",
+      "cluster": "dev-data-platform",
+      "tier": "LATENT",
+      "title": "StatefulSet confluent/dev-connect-1: uses 12.4Gi memory with no memory request (BestEffort)",
+      "summary": "The scheduler places pods by their requests, so it sees this workload as needing no memory at all while it uses 12.4Gi. The nodes it lands on get packed past their capacity, which is what node memory alerts report. With no requests at all the pods are BestEffort: under node memory pressure the kubelet evicts them first.",
+      "subject": {
+        "kind": "StatefulSet",
+        "namespace": "confluent",
+        "name": "dev-connect-1"
+      },
+      "affected": [
+        {
+          "kind": "Pod",
+          "namespace": "confluent",
+          "name": "dev-connect-1-0"
+        },
+        {
+          "kind": "Pod",
+          "namespace": "confluent",
+          "name": "dev-connect-1-1"
+        }
+      ],
+      "evidence": [
+        "requests per pod: memory none, cpu none; memory limit none; QoS BestEffort",
+        "dev-connect-1-0 [node ip-10-0-1-11.ec2.internal, 21% of its memory]: memory 12.4Gi (requested none), cpu 194m (requested none)",
+        "dev-connect-1-1 [node ip-10-0-1-15.ec2.internal, 17% of its memory]: memory 10.6Gi (requested none), cpu 515m (requested none)",
+        "pod template owned by Connect dev-connect-1 (platform.confluent.io/v1beta1): edits to the statefulset are reverted by the operator",
+        "usage is one metrics-server sample (memory = working set, includes active page cache)"
+      ],
+      "remediation": {
+        "steps": [
+          {
+            "description": "Confirm the numbers against p95/peak usage over 7-14 days (Sysdig) before applying; this scan saw a single sample. Proposed starting point: requests: {memory: 15Gi}, limits: {memory: 15Gi}"
+          },
+          {
+            "description": "Set the resources in the Confluent for Kubernetes Connect CR \"dev-connect-1\" under spec.podTemplate.resources (CFK owns the statefulset and reverts direct edits); for Kafka/Connect/ksqlDB also align the JVM heap (-Xmx) with the new limit",
+            "command": "kubectl edit connect dev-connect-1 -n confluent",
+            "mutating": true
+          }
+        ],
+        "verify": [
+          "kubectl get pods -n confluent -o custom-columns=NAME:.metadata.name,QOS:.status.qosClass | grep dev-connect-1"
+        ]
+      },
+      "pattern_key": "resource-requests|memory-none|StatefulSet|dev-connect-1",
+      "explains": [
+        "aab864cceb33"
+      ]
+    },
+    {
+      "id": "fb6aecfd2341",
+      "detector": "resource-requests",
+      "cluster": "dev-data-platform",
+      "tier": "LATENT",
+      "title": "StatefulSet confluent/ksqldb-cluster-1: uses 14.6Gi memory with no memory request (BestEffort)",
+      "summary": "The scheduler places pods by their requests, so it sees this workload as needing no memory at all while it uses 14.6Gi. The nodes it lands on get packed past their capacity, which is what node memory alerts report. With no requests at all the pods are BestEffort: under node memory pressure the kubelet evicts them first.",
+      "subject": {
+        "kind": "StatefulSet",
+        "namespace": "confluent",
+        "name": "ksqldb-cluster-1"
+      },
+      "affected": [
+        {
+          "kind": "Pod",
+          "namespace": "confluent",
+          "name": "ksqldb-cluster-1-1"
+        },
+        {
+          "kind": "Pod",
+          "namespace": "confluent",
+          "name": "ksqldb-cluster-1-0"
+        }
+      ],
+      "evidence": [
+        "requests per pod: memory none, cpu none; memory limit none; QoS BestEffort",
+        "ksqldb-cluster-1-1 [node ip-10-0-1-11.ec2.internal, 24% of its memory]: memory 14.6Gi (requested none), cpu 321m (requested none)",
+        "ksqldb-cluster-1-0 [node ip-10-0-1-15.ec2.internal, 24% of its memory]: memory 14.2Gi (requested none), cpu 337m (requested none)",
+        "pod template owned by KsqlDB ksqldb-cluster-1 (platform.confluent.io/v1beta1): edits to the statefulset are reverted by the operator",
+        "usage is one metrics-server sample (memory = working set, includes active page cache)"
+      ],
+      "remediation": {
+        "steps": [
+          {
+            "description": "Confirm the numbers against p95/peak usage over 7-14 days (Sysdig) before applying; this scan saw a single sample. Proposed starting point: requests: {memory: 17920Mi}, limits: {memory: 17920Mi}"
+          },
+          {
+            "description": "Set the resources in the Confluent for Kubernetes KsqlDB CR \"ksqldb-cluster-1\" under spec.podTemplate.resources (CFK owns the statefulset and reverts direct edits); for Kafka/Connect/ksqlDB also align the JVM heap (-Xmx) with the new limit",
+            "command": "kubectl edit ksqldb ksqldb-cluster-1 -n confluent",
+            "mutating": true
+          }
+        ],
+        "verify": [
+          "kubectl get pods -n confluent -o custom-columns=NAME:.metadata.name,QOS:.status.qosClass | grep ksqldb-cluster-1"
+        ]
+      },
+      "pattern_key": "resource-requests|memory-none|StatefulSet|ksqldb-cluster-1",
+      "explains": [
+        "aab864cceb33"
+      ]
+    },
+    {
+      "id": "62484292f36d",
+      "detector": "resource-requests",
+      "cluster": "dev-data-platform",
+      "tier": "LATENT",
+      "title": "StatefulSet confluent/kafka: uses 23.8Gi memory with no memory request (BestEffort)",
+      "summary": "The scheduler places pods by their requests, so it sees this workload as needing no memory at all while it uses 23.8Gi. The nodes it lands on get packed past their capacity, which is what node memory alerts report. With no requests at all the pods are BestEffort: under node memory pressure the kubelet evicts them first.",
+      "subject": {
+        "kind": "StatefulSet",
+        "namespace": "confluent",
+        "name": "kafka"
+      },
+      "affected": [
+        {
+          "kind": "Pod",
+          "namespace": "confluent",
+          "name": "kafka-0"
+        },
+        {
+          "kind": "Pod",
+          "namespace": "confluent",
+          "name": "kafka-2"
+        },
+        {
+          "kind": "Pod",
+          "namespace": "confluent",
+          "name": "kafka-1"
+        }
+      ],
+      "evidence": [
+        "requests per pod: memory none, cpu none; memory limit none; QoS BestEffort",
+        "kafka-0 [node ip-10-0-1-12.ec2.internal, 40% of its memory]: memory 23.8Gi (requested none), cpu 851m (requested none)",
+        "kafka-2 [node ip-10-0-1-14.ec2.internal, 38% of its memory]: memory 22.7Gi (requested none), cpu 804m (requested none)",
+        "kafka-1 [node ip-10-0-1-14.ec2.internal, 30% of its memory]: memory 17.9Gi (requested none), cpu 749m (requested none)",
+        "pod template owned by Kafka kafka (platform.confluent.io/v1beta1): edits to the statefulset are reverted by the operator",
+        "usage is one metrics-server sample (memory = working set, includes active page cache)"
+      ],
+      "remediation": {
+        "steps": [
+          {
+            "description": "Confirm the numbers against p95/peak usage over 7-14 days (Sysdig) before applying; this scan saw a single sample. Proposed starting point: requests: {memory: 29440Mi}, limits: {memory: 29440Mi}"
+          },
+          {
+            "description": "Set the resources in the Confluent for Kubernetes Kafka CR \"kafka\" under spec.podTemplate.resources (CFK owns the statefulset and reverts direct edits); for Kafka/Connect/ksqlDB also align the JVM heap (-Xmx) with the new limit",
+            "command": "kubectl edit kafka kafka -n confluent",
+            "mutating": true
+          }
+        ],
+        "verify": [
+          "kubectl get pods -n confluent -o custom-columns=NAME:.metadata.name,QOS:.status.qosClass | grep kafka"
+        ]
+      },
+      "pattern_key": "resource-requests|memory-none|StatefulSet|kafka"
+    },
+    {
+      "id": "291b52ecf0fe",
+      "detector": "resource-requests",
+      "cluster": "dev-data-platform",
+      "tier": "LATENT",
+      "title": "StatefulSet confluent/controlcenter: uses 23.1Gi memory with no memory request (BestEffort)",
+      "summary": "The scheduler places pods by their requests, so it sees this workload as needing no memory at all while it uses 23.1Gi. The nodes it lands on get packed past their capacity, which is what node memory alerts report. With no requests at all the pods are BestEffort: under node memory pressure the kubelet evicts them first.",
+      "subject": {
+        "kind": "StatefulSet",
+        "namespace": "confluent",
+        "name": "controlcenter"
+      },
+      "affected": [
+        {
+          "kind": "Pod",
+          "namespace": "confluent",
+          "name": "controlcenter-0"
+        }
+      ],
+      "evidence": [
+        "requests per pod: memory none, cpu none; memory limit none; QoS BestEffort",
+        "controlcenter-0 [node ip-10-0-1-12.ec2.internal, 39% of its memory]: memory 23.1Gi (requested none), cpu 213m (requested none)",
+        "pod template owned by ControlCenter controlcenter (platform.confluent.io/v1beta1): edits to the statefulset are reverted by the operator",
+        "usage is one metrics-server sample (memory = working set, includes active page cache)"
+      ],
+      "remediation": {
+        "steps": [
+          {
+            "description": "Confirm the numbers against p95/peak usage over 7-14 days (Sysdig) before applying; this scan saw a single sample. Proposed starting point: requests: {memory: 28416Mi}, limits: {memory: 28416Mi}"
+          },
+          {
+            "description": "Set the resources in the Confluent for Kubernetes ControlCenter CR \"controlcenter\" under spec.podTemplate.resources (CFK owns the statefulset and reverts direct edits); for Kafka/Connect/ksqlDB also align the JVM heap (-Xmx) with the new limit",
+            "command": "kubectl edit controlcenter controlcenter -n confluent",
+            "mutating": true
+          }
+        ],
+        "verify": [
+          "kubectl get pods -n confluent -o custom-columns=NAME:.metadata.name,QOS:.status.qosClass | grep controlcenter"
+        ]
+      },
+      "pattern_key": "resource-requests|memory-none|StatefulSet|controlcenter"
+    },
+    {
+      "id": "aab864cceb33",
+      "detector": "node-saturation",
+      "cluster": "dev-data-platform",
+      "tier": "LATENT",
+      "title": "Node ip-10-0-1-11.ec2.internal memory at 100% of allocatable, 41% requested",
+      "summary": "34.5Gi of the memory in use is not covered by any request, so the scheduler kept placing pods here. When free memory falls below the kubelet's eviction threshold it evicts pods, BestEffort first (5 on this node); a faster spike gets processes OOM-killed instead.",
+      "subject": {
+        "kind": "Node",
+        "name": "ip-10-0-1-11.ec2.internal"
+      },
+      "affected": [
+        {
+          "kind": "Pod",
+          "namespace": "confluent",
+          "name": "ksqldb-cluster-1-1"
+        },
+        {
+          "kind": "Pod",
+          "namespace": "confluent",
+          "name": "dev-connect-1-0"
+        },
+        {
+          "kind": "Pod",
+          "namespace": "confluent",
+          "name": "test-connect-1-1"
+        },
+        {
+          "kind": "Pod",
+          "namespace": "orders-cdc",
+          "name": "cdc-orders-7f4c9d2a1b-q8wzn"
+        },
+        {
+          "kind": "Pod",
+          "namespace": "confluent",
+          "name": "kraftcontroller-1"
+        }
+      ],
+      "evidence": [
+        "instance-type=m5.4xlarge capacity-type=on-demand nodepool=default os=Amazon Linux 2023",
+        "memory: 59.1Gi used of 59.1Gi allocatable (100%); requested 24.5Gi (41%)",
+        "confluent/ksqldb-cluster-1-1: uses 14.6Gi, requested none (14.6Gi unrequested, BestEffort)",
+        "confluent/dev-connect-1-0: uses 12.4Gi, requested none (12.4Gi unrequested, BestEffort)",
+        "confluent/test-connect-1-1: uses 10.8Gi, requested none (10.8Gi unrequested, BestEffort)",
+        "orders-cdc/cdc-orders-7f4c9d2a1b-q8wzn: uses 13.3Gi, requested 8.0Gi (5.3Gi unrequested)",
+        "confluent/kraftcontroller-1: uses 3.1Gi, requested none (3.1Gi unrequested, BestEffort)"
+      ],
+      "remediation": {
+        "steps": [
+          {
+            "description": "Resize the workloads named above (see the resource-requests / cpu-hotspot findings linked to this node)"
+          },
+          {
+            "description": "Compare requests and limits with what the node can hold",
+            "command": "kubectl describe node ip-10-0-1-11.ec2.internal | grep -A12 'Allocated resources'"
+          },
+          {
+            "description": "All pods on the node",
+            "command": "kubectl get pods -A -o wide --field-selector spec.nodeName=ip-10-0-1-11.ec2.internal"
+          }
+        ],
+        "verify": [
+          "kubectl top node ip-10-0-1-11.ec2.internal"
+        ]
+      },
+      "pattern_key": "node-saturation|memory",
+      "caused_by": [
+        "fb6aecfd2341",
+        "babf72628a58",
+        "326b7ed12d06",
+        "a14c0c6bf74e"
+      ]
+    }
+  ]
+}

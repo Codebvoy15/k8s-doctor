@@ -1,0 +1,146 @@
+{
+  "schema_version": "1",
+  "cluster": "prod-api-apac",
+  "captured_at": "2026-10-06T07:45:00Z",
+  "detectors": [
+    "missing-reference",
+    "workload-unavailable",
+    "node-unhealthy",
+    "failed-pods",
+    "resource-requests",
+    "node-saturation",
+    "cpu-hotspot"
+  ],
+  "coverage": {
+    "ConfigMap": true,
+    "DaemonSet": true,
+    "Deployment": true,
+    "Event": true,
+    "HorizontalPodAutoscaler": true,
+    "Node": true,
+    "NodeMetrics": true,
+    "PersistentVolumeClaim": true,
+    "Pod": true,
+    "PodMetrics": true,
+    "Secret": true,
+    "ServiceAccount": true,
+    "StatefulSet": true
+  },
+  "counts": {
+    "LATENT": 2
+  },
+  "findings": [
+    {
+      "id": "3c59516ca2cb",
+      "detector": "cpu-hotspot",
+      "cluster": "prod-api-apac",
+      "tier": "LATENT",
+      "title": "Deployment storefront-prod/web-api: one replica uses 2.5 cores (64% of node ip-10-0-2-102.compute.internal), no HPA",
+      "summary": "One replica uses 2.5 cores, 64% of its node's CPU, so that node sits near the alert threshold and every load spike crosses it. No HPA targets it, so nothing scales it out when load rises: the existing replicas absorb all of it. Load is uneven across replicas, which points at long-lived connections pinning clients to one pod, or uneven work distribution. Replicas also restart regularly; check whether they fail liveness probes while CPU-starved.",
+      "subject": {
+        "kind": "Deployment",
+        "namespace": "storefront-prod",
+        "name": "web-api"
+      },
+      "affected": [
+        {
+          "kind": "Pod",
+          "namespace": "storefront-prod",
+          "name": "web-api-5c8e7b6f4d-h7kq2"
+        },
+        {
+          "kind": "Pod",
+          "namespace": "storefront-prod",
+          "name": "web-api-5c8e7b6f4d-m3tvd"
+        }
+      ],
+      "evidence": [
+        "web-api-5c8e7b6f4d-h7kq2 [node ip-10-0-2-102.compute.internal, 64% of its CPU]: cpu 2.5 cores (requested none)",
+        "web-api-5c8e7b6f4d-m3tvd [node ip-10-0-2-86.compute.internal, 30% of its CPU]: cpu 1.2 cores (requested none)",
+        "replica load is uneven: busiest 2.5 cores vs quietest 1.2 cores (2.1x)",
+        "no CPU request: the scheduler cannot spread replicas by CPU, and an HPA has no utilization to scale on",
+        "replicas restarted 64 times in total, last 13h ago (Error)"
+      ],
+      "remediation": {
+        "steps": [
+          {
+            "description": "See per-replica CPU now",
+            "command": "kubectl top pods -n storefront-prod --sort-by=cpu | grep web-api"
+          },
+          {
+            "description": "Set a CPU request near observed usage first (see the resource-requests finding): HPA utilization is measured against the request"
+          },
+          {
+            "description": "Add an HPA so the workload scales out under load (after CPU requests are set)",
+            "command": "kubectl autoscale deployment web-api -n storefront-prod --cpu-percent=70 --min=2 --max=6",
+            "mutating": true
+          },
+          {
+            "description": "Check how traffic reaches the replicas: keep-alive/HTTP2/gRPC connections pin clients to one pod; use an L7 balancer or a connection max-age"
+          },
+          {
+            "description": "Spread replicas across nodes with topologySpreadConstraints (maxSkew 1 on kubernetes.io/hostname)"
+          },
+          {
+            "description": "Find why replicas restart (OOMKilled, liveness probe, or error)",
+            "command": "kubectl describe pod web-api-5c8e7b6f4d-h7kq2 -n storefront-prod | grep -A6 'Last State'"
+          }
+        ],
+        "verify": [
+          "kubectl top pods -n storefront-prod | grep web-api"
+        ]
+      },
+      "pattern_key": "cpu-hotspot|Deployment|web-api"
+    },
+    {
+      "id": "a8922d60f5e6",
+      "detector": "resource-requests",
+      "cluster": "prod-api-apac",
+      "tier": "LATENT",
+      "title": "Deployment storefront-prod/web-api: uses 1.6Gi memory and 2.5 cores of CPU with no requests (BestEffort)",
+      "summary": "The scheduler places pods by their requests, so it sees this workload as needing no memory at all while it uses 1.6Gi. The nodes it lands on get packed past their capacity, which is what node memory alerts report. With no requests at all the pods are BestEffort: under node memory pressure the kubelet evicts them first. CPU above the request is not reserved: it competes with neighbouring pods, is throttled when the node is busy, and an HPA cannot scale on utilization without a request.",
+      "subject": {
+        "kind": "Deployment",
+        "namespace": "storefront-prod",
+        "name": "web-api"
+      },
+      "affected": [
+        {
+          "kind": "Pod",
+          "namespace": "storefront-prod",
+          "name": "web-api-5c8e7b6f4d-h7kq2"
+        },
+        {
+          "kind": "Pod",
+          "namespace": "storefront-prod",
+          "name": "web-api-5c8e7b6f4d-m3tvd"
+        }
+      ],
+      "evidence": [
+        "requests per pod: memory none, cpu none; memory limit none; QoS BestEffort",
+        "web-api-5c8e7b6f4d-h7kq2 [node ip-10-0-2-102.compute.internal, 11% of its memory]: memory 1.6Gi (requested none), cpu 2.5 cores (requested none)",
+        "web-api-5c8e7b6f4d-m3tvd [node ip-10-0-2-86.compute.internal, 11% of its memory]: memory 1.6Gi (requested none), cpu 1.2 cores (requested none)",
+        "usage is one metrics-server sample (memory = working set, includes active page cache)"
+      ],
+      "remediation": {
+        "steps": [
+          {
+            "description": "Confirm the numbers against p95/peak usage over 7-14 days (Sysdig) before applying; this scan saw a single sample. Proposed starting point: requests: {cpu: 1900m, memory: 2Gi}, limits: {memory: 2Gi}"
+          },
+          {
+            "description": "Set requests (and a memory limit equal to the request: memory is not compressible) on the workload",
+            "command": "kubectl set resources deployment/web-api -n storefront-prod --requests=cpu=1900m,memory=2Gi --limits=memory=2Gi",
+            "mutating": true
+          },
+          {
+            "description": "Commit the same values to the manifest in Git, or the next deploy reverts them"
+          }
+        ],
+        "verify": [
+          "kubectl get pods -n storefront-prod -o custom-columns=NAME:.metadata.name,QOS:.status.qosClass | grep web-api"
+        ]
+      },
+      "pattern_key": "resource-requests|memory-none|Deployment|web-api"
+    }
+  ]
+}

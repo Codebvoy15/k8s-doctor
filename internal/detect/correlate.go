@@ -31,19 +31,47 @@ func correlate(fs []Finding) {
 				linked[ci] = true
 			}
 		}
-		var idx []int
-		for ci := range linked {
-			idx = append(idx, ci)
-		}
-		sort.Ints(idx)
-		for _, ci := range idx {
-			fs[i].CausedBy = append(fs[i].CausedBy, fs[ci].ID)
-			fs[ci].Explains = append(fs[ci].Explains, fs[i].ID)
-			// the cause inherits the symptom's impact: a missing secret that
-			// takes a whole workload down is itself IMPACTING
-			if fs[i].Tier.Rank() < fs[ci].Tier.Rank() {
-				fs[ci].Tier = fs[i].Tier
+		link(fs, i, linked)
+	}
+
+	// Resource pressure: a saturated node is caused by the workloads whose
+	// measured usage beyond their request is on that node, for that resource.
+	causeByUse := map[string][]int{}
+	for i, f := range fs {
+		if f.Detector == "resource-requests" || f.Detector == "cpu-hotspot" {
+			for _, k := range f.contrib {
+				causeByUse[k] = append(causeByUse[k], i)
 			}
+		}
+	}
+	for i := range fs {
+		if fs[i].Detector != "node-saturation" {
+			continue
+		}
+		linked := map[int]bool{}
+		for _, k := range fs[i].contrib {
+			for _, ci := range causeByUse[k] {
+				linked[ci] = true
+			}
+		}
+		link(fs, i, linked)
+	}
+}
+
+// link records symptom i as caused by each finding in causes, in a stable order.
+func link(fs []Finding, i int, causes map[int]bool) {
+	var idx []int
+	for ci := range causes {
+		idx = append(idx, ci)
+	}
+	sort.Ints(idx)
+	for _, ci := range idx {
+		fs[i].CausedBy = append(fs[i].CausedBy, fs[ci].ID)
+		fs[ci].Explains = append(fs[ci].Explains, fs[i].ID)
+		// the cause inherits the symptom's impact: a missing secret that
+		// takes a whole workload down is itself IMPACTING
+		if fs[i].Tier.Rank() < fs[ci].Tier.Rank() {
+			fs[ci].Tier = fs[i].Tier
 		}
 	}
 }

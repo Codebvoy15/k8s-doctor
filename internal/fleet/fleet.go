@@ -245,6 +245,25 @@ func PatternTitle(f detect.Finding) string {
 		if len(parts) == 2 {
 			return "Nodes " + parts[1]
 		}
+	case "resource-requests":
+		if len(parts) == 4 {
+			issue := map[string]string{
+				"memory-none": "no memory request", "memory-under": "memory far above its request",
+				"cpu-none": "no CPU request", "cpu-under": "CPU far above its request",
+			}[parts[1]]
+			if issue == "" {
+				issue = parts[1]
+			}
+			return fmt.Sprintf("%s %s: %s", parts[2], parts[3], issue)
+		}
+	case "node-saturation":
+		if len(parts) == 2 {
+			return fmt.Sprintf("Nodes with %s above 85%% of allocatable", parts[1])
+		}
+	case "cpu-hotspot":
+		if len(parts) == 3 {
+			return fmt.Sprintf("%s %s: one replica saturates its node's CPU", parts[1], parts[2])
+		}
 	}
 	return f.Title
 }

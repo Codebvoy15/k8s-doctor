@@ -12,6 +12,7 @@ package collect
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -20,6 +21,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/kubernetes"
@@ -280,8 +282,72 @@ func Snapshot(ctx context.Context, cfg *rest.Config, cluster string, opt Options
 			opts.Continue = l.Continue
 		}
 	})
+	var hpas []model.HPA
+	run(model.KindHPA, func() error {
+		opts := metav1.ListOptions{Limit: opt.PageSize}
+		for {
+			l, err := cs.AutoscalingV2().HorizontalPodAutoscalers(ns).List(ctx, opts)
+			if err != nil {
+				return err
+			}
+			for _, h := range l.Items {
+				minR := int32(1) // API default
+				if h.Spec.MinReplicas != nil {
+					minR = *h.Spec.MinReplicas
+				}
+				hpas = append(hpas, model.HPA{
+					Namespace: h.Namespace, Name: h.Name,
+					TargetKind: h.Spec.ScaleTargetRef.Kind, TargetName: h.Spec.ScaleTargetRef.Name,
+					Min: minR, Max: h.Spec.MaxReplicas, Current: h.Status.CurrentReplicas,
+				})
+			}
+			if l.Continue == "" {
+				return nil
+			}
+			opts.Continue = l.Continue
+		}
+	})
+	// Usage from metrics-server (metrics.k8s.io), read as raw JSON so no extra
+	// module is needed. Missing metrics-server or RBAC degrades gracefully: the
+	// resource detectors then report nothing rather than guess.
+	var podUsage []model.PodUsage
+	var nodeUsage []model.NodeUsage
+	run(model.KindPodMetrics, func() error {
+		path := "/apis/metrics.k8s.io/v1beta1/pods"
+		if ns != "" {
+			path = "/apis/metrics.k8s.io/v1beta1/namespaces/" + ns + "/pods"
+		}
+		l, err := getMetrics(ctx, cs, path)
+		if err != nil {
+			return err
+		}
+		for _, it := range l.Items {
+			pu := model.PodUsage{Namespace: it.Metadata.Namespace, Name: it.Metadata.Name}
+			for _, c := range it.Containers {
+				cpu, mem := parseUsage(c.Usage)
+				pu.Containers = append(pu.Containers, model.ContainerUsage{Name: c.Name, CPUMilli: cpu, MemBytes: mem})
+			}
+			podUsage = append(podUsage, pu)
+		}
+		return nil
+	})
+	run(model.KindNodeMetrics, func() error {
+		l, err := getMetrics(ctx, cs, "/apis/metrics.k8s.io/v1beta1/nodes")
+		if err != nil {
+			return err
+		}
+		for _, it := range l.Items {
+			cpu, mem := parseUsage(it.Usage)
+			nodeUsage = append(nodeUsage, model.NodeUsage{Name: it.Metadata.Name, CPUMilli: cpu, MemBytes: mem})
+		}
+		return nil
+	})
 	wg.Wait()
 	s.Workloads = append(append(append(s.Workloads, deps...), stss...), dss...)
+	s.HPAs = hpas
+	if len(podUsage) > 0 || len(nodeUsage) > 0 {
+		s.Usage = &model.Usage{Pods: podUsage, Nodes: nodeUsage}
+	}
 
 	if !s.Collected[model.KindPod] {
 		for _, e := range s.Errors {
@@ -315,12 +381,82 @@ func listNames(ctx context.Context, mc metadata.Interface, resource, ns string, 
 	}
 }
 
+// metricsList is the subset of metrics.k8s.io PodMetricsList/NodeMetricsList we read.
+type metricsList struct {
+	Items []struct {
+		Metadata struct {
+			Name      string `json:"name"`
+			Namespace string `json:"namespace"`
+		} `json:"metadata"`
+		Usage      map[string]string `json:"usage"` // NodeMetrics
+		Containers []struct {
+			Name  string            `json:"name"`
+			Usage map[string]string `json:"usage"`
+		} `json:"containers"` // PodMetrics
+	} `json:"items"`
+}
+
+func getMetrics(ctx context.Context, cs kubernetes.Interface, path string) (*metricsList, error) {
+	raw, err := cs.CoreV1().RESTClient().Get().AbsPath(path).DoRaw(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("metrics.k8s.io (is metrics-server installed?): %w", err)
+	}
+	var l metricsList
+	if err := json.Unmarshal(raw, &l); err != nil {
+		return nil, fmt.Errorf("metrics.k8s.io: %w", err)
+	}
+	return &l, nil
+}
+
+// parseUsage converts metrics-server quantities ("851123n", "24979632Ki").
+func parseUsage(u map[string]string) (cpuMilli, memBytes int64) {
+	if q, err := resource.ParseQuantity(u["cpu"]); err == nil {
+		cpuMilli = q.MilliValue()
+	}
+	if q, err := resource.ParseQuantity(u["memory"]); err == nil {
+		memBytes = q.Value()
+	}
+	return cpuMilli, memBytes
+}
+
+func convertResources(r corev1.ResourceRequirements) *model.Resources {
+	get := func(l corev1.ResourceList, name corev1.ResourceName, milli bool) int64 {
+		q, ok := l[name]
+		if !ok {
+			return 0
+		}
+		if milli {
+			return q.MilliValue()
+		}
+		return q.Value()
+	}
+	return &model.Resources{
+		RequestCPUMilli: get(r.Requests, corev1.ResourceCPU, true),
+		LimitCPUMilli:   get(r.Limits, corev1.ResourceCPU, true),
+		RequestMemBytes: get(r.Requests, corev1.ResourceMemory, false),
+		LimitMemBytes:   get(r.Limits, corev1.ResourceMemory, false),
+	}
+}
+
+// workloadOwner returns who owns a workload's pod template: an operator's
+// custom resource (controller ownerReference), a Helm release, or neither.
+func workloadOwner(m metav1.ObjectMeta) (*model.ControllerRef, string, string) {
+	var c *model.ControllerRef
+	for _, o := range m.OwnerReferences {
+		if o.Controller != nil && *o.Controller {
+			c = &model.ControllerRef{APIVersion: o.APIVersion, Kind: o.Kind, Name: o.Name}
+		}
+	}
+	return c, m.Annotations["meta.helm.sh/release-name"], m.Labels["app.kubernetes.io/managed-by"]
+}
+
 func convertPod(p *corev1.Pod) model.Pod {
 	mp := model.Pod{
 		Namespace: p.Namespace, Name: p.Name, Node: p.Spec.NodeName,
 		Phase: string(p.Status.Phase), Reason: p.Status.Reason, Message: p.Status.Message,
 		ServiceAccount: p.Spec.ServiceAccountName,
 		CreatedAt:      p.CreationTimestamp.Time.UTC(),
+		QOS:            string(p.Status.QOSClass),
 	}
 	if p.DeletionTimestamp != nil {
 		t := p.DeletionTimestamp.Time.UTC()
@@ -354,6 +490,21 @@ func convertPod(p *corev1.Pod) model.Pod {
 		for _, c := range p.Spec.Containers {
 			mp.Containers = append(mp.Containers, model.Container{Name: c.Name, Image: c.Image, State: "waiting"})
 		}
+	}
+	// requests/limits come from the spec; status entries are matched by name
+	specRes := map[string]*model.Resources{}
+	for _, c := range p.Spec.InitContainers {
+		specRes["init/"+c.Name] = convertResources(c.Resources)
+	}
+	for _, c := range p.Spec.Containers {
+		specRes[c.Name] = convertResources(c.Resources)
+	}
+	for i := range mp.Containers {
+		k := mp.Containers[i].Name
+		if mp.Containers[i].Init {
+			k = "init/" + k
+		}
+		mp.Containers[i].Resources = specRes[k]
 	}
 	mp.Refs = podRefs(&p.Spec)
 	return mp
@@ -470,6 +621,11 @@ func convertNode(n *corev1.Node) model.Node {
 			mn.Labels[k] = v
 		}
 	}
+	cpu, okCPU := n.Status.Allocatable[corev1.ResourceCPU]
+	mem, okMem := n.Status.Allocatable[corev1.ResourceMemory]
+	if okCPU && okMem {
+		mn.Allocatable = &model.Capacity{CPUMilli: cpu.MilliValue(), MemBytes: mem.Value()}
+	}
 	return mn
 }
 
@@ -512,28 +668,34 @@ func replicas(r *int32) int32 {
 }
 
 func convertDeployment(d *appsv1.Deployment) model.Workload {
-	return model.Workload{
+	w := model.Workload{
 		Kind: model.KindDeployment, Namespace: d.Namespace, Name: d.Name,
 		Desired: replicas(d.Spec.Replicas), Ready: d.Status.ReadyReplicas,
 		Available: d.Status.AvailableReplicas, Updated: d.Status.UpdatedReplicas,
 		CreatedAt: d.CreationTimestamp.Time.UTC(),
 	}
+	w.Controller, w.HelmRelease, w.ManagedBy = workloadOwner(d.ObjectMeta)
+	return w
 }
 
 func convertStatefulSet(st *appsv1.StatefulSet) model.Workload {
-	return model.Workload{
+	w := model.Workload{
 		Kind: model.KindStatefulSet, Namespace: st.Namespace, Name: st.Name,
 		Desired: replicas(st.Spec.Replicas), Ready: st.Status.ReadyReplicas,
 		Available: st.Status.AvailableReplicas, Updated: st.Status.UpdatedReplicas,
 		CreatedAt: st.CreationTimestamp.Time.UTC(),
 	}
+	w.Controller, w.HelmRelease, w.ManagedBy = workloadOwner(st.ObjectMeta)
+	return w
 }
 
 func convertDaemonSet(ds *appsv1.DaemonSet) model.Workload {
-	return model.Workload{
+	w := model.Workload{
 		Kind: model.KindDaemonSet, Namespace: ds.Namespace, Name: ds.Name,
 		Desired: ds.Status.DesiredNumberScheduled, Ready: ds.Status.NumberReady,
 		Available: ds.Status.NumberAvailable, Updated: ds.Status.UpdatedNumberScheduled,
 		CreatedAt: ds.CreationTimestamp.Time.UTC(),
 	}
+	w.Controller, w.HelmRelease, w.ManagedBy = workloadOwner(ds.ObjectMeta)
+	return w
 }

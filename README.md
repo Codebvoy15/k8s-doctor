@@ -23,6 +23,25 @@ Read-only; secret data is never collected; the kubeconfig is never modified.
 Tiers: **IMPACTING** (down now) > **DEGRADED** > **LATENT** (breaks on the next
 restart/reschedule) > **INFO**. See [DESIGN.md](DESIGN.md).
 
+### New in v3.7: why are the CPU/memory alerts firing?
+
+```bash
+# only the resource detectors, with the fix for each workload
+./k8s-doctor scan --context <ctx> --detectors resource-requests,node-saturation,cpu-hotspot -v
+```
+
+- **resource-requests**: workloads using far more memory/CPU than they request,
+  or requesting none (BestEffort). The fix goes where it sticks: the operator's
+  CR (e.g. CFK `spec.podTemplate.resources`), the Helm values, or the workload.
+- **node-saturation**: nodes at >=85% of allocatable, with how much of the usage
+  is unrequested and which pods use it; linked to the workloads that cause it.
+- **cpu-hotspot**: one replica taking most of a node's CPU, with HPA state,
+  replica imbalance and restarts.
+
+Usage comes from metrics-server (`kubectl top` numbers, one sample). Without it
+these detectors stay silent. Confirm sizing against p95/peak history before
+applying any proposed numbers.
+
 ### Install on the jump server (from GitHub releases)
 
 ```bash

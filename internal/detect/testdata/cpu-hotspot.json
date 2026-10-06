@@ -1,0 +1,522 @@
+{
+ "schema_version": "1",
+ "cluster": "prod-api-apac",
+ "captured_at": "2026-10-06T07:45:00Z",
+ "collected": {
+  "Pod": true,
+  "Node": true,
+  "Secret": true,
+  "ConfigMap": true,
+  "PersistentVolumeClaim": true,
+  "ServiceAccount": true,
+  "Event": true,
+  "Deployment": true,
+  "StatefulSet": true,
+  "DaemonSet": true,
+  "HorizontalPodAutoscaler": true,
+  "PodMetrics": true,
+  "NodeMetrics": true
+ },
+ "pods": [
+  {
+   "namespace": "storefront-prod",
+   "name": "web-api-5c8e7b6f4d-h7kq2",
+   "node": "ip-10-0-2-102.compute.internal",
+   "phase": "Running",
+   "ready": true,
+   "service_account": "default",
+   "owner": {
+    "kind": "ReplicaSet",
+    "name": "web-api-5c8e7b6f4d"
+   },
+   "created_at": "2026-10-04T10:00:00Z",
+   "qos": "BestEffort",
+   "containers": [
+    {
+     "name": "app",
+     "image": "registry.example.com/app:1.0",
+     "image_id": "registry.example.com/app@sha256:1",
+     "ready": true,
+     "restarts": 37,
+     "state": "running",
+     "resources": {},
+     "last_term_reason": "Error",
+     "last_term_exit": 137,
+     "last_term_at": "2026-10-05T10:45:00Z"
+    }
+   ],
+   "refs": []
+  },
+  {
+   "namespace": "storefront-prod",
+   "name": "web-api-5c8e7b6f4d-m3tvd",
+   "node": "ip-10-0-2-86.compute.internal",
+   "phase": "Running",
+   "ready": true,
+   "service_account": "default",
+   "owner": {
+    "kind": "ReplicaSet",
+    "name": "web-api-5c8e7b6f4d"
+   },
+   "created_at": "2026-10-04T10:00:00Z",
+   "qos": "BestEffort",
+   "containers": [
+    {
+     "name": "app",
+     "image": "registry.example.com/app:1.0",
+     "image_id": "registry.example.com/app@sha256:1",
+     "ready": true,
+     "restarts": 27,
+     "state": "running",
+     "resources": {},
+     "last_term_reason": "Error",
+     "last_term_exit": 137,
+     "last_term_at": "2026-10-05T18:45:00Z"
+    }
+   ],
+   "refs": []
+  },
+  {
+   "namespace": "storefront-prod",
+   "name": "web-ui-7c5d8f9b6-k2m4p",
+   "node": "ip-10-0-2-56.compute.internal",
+   "phase": "Running",
+   "ready": true,
+   "service_account": "default",
+   "owner": {
+    "kind": "ReplicaSet",
+    "name": "web-ui-7c5d8f9b6"
+   },
+   "created_at": "2026-10-04T10:00:00Z",
+   "qos": "BestEffort",
+   "containers": [
+    {
+     "name": "app",
+     "image": "registry.example.com/app:1.0",
+     "image_id": "registry.example.com/app@sha256:1",
+     "ready": true,
+     "restarts": 0,
+     "state": "running",
+     "resources": {}
+    }
+   ],
+   "refs": []
+  },
+  {
+   "namespace": "storefront-prod",
+   "name": "eureka-0",
+   "node": "ip-10-0-2-86.compute.internal",
+   "phase": "Running",
+   "ready": true,
+   "service_account": "default",
+   "owner": {
+    "kind": "StatefulSet",
+    "name": "eureka"
+   },
+   "created_at": "2026-10-04T10:00:00Z",
+   "qos": "Burstable",
+   "containers": [
+    {
+     "name": "app",
+     "image": "registry.example.com/app:1.0",
+     "image_id": "registry.example.com/app@sha256:1",
+     "ready": true,
+     "restarts": 0,
+     "state": "running",
+     "resources": {
+      "req_cpu_m": 100,
+      "req_mem_bytes": 536870912
+     }
+    }
+   ],
+   "refs": []
+  },
+  {
+   "namespace": "storefront-prod",
+   "name": "eureka-1",
+   "node": "ip-10-0-2-56.compute.internal",
+   "phase": "Running",
+   "ready": true,
+   "service_account": "default",
+   "owner": {
+    "kind": "StatefulSet",
+    "name": "eureka"
+   },
+   "created_at": "2026-10-04T10:00:00Z",
+   "qos": "Burstable",
+   "containers": [
+    {
+     "name": "app",
+     "image": "registry.example.com/app:1.0",
+     "image_id": "registry.example.com/app@sha256:1",
+     "ready": true,
+     "restarts": 0,
+     "state": "running",
+     "resources": {
+      "req_cpu_m": 100,
+      "req_mem_bytes": 536870912
+     }
+    }
+   ],
+   "refs": []
+  },
+  {
+   "namespace": "storefront-prod",
+   "name": "eureka-2",
+   "node": "ip-10-0-2-102.compute.internal",
+   "phase": "Running",
+   "ready": true,
+   "service_account": "default",
+   "owner": {
+    "kind": "StatefulSet",
+    "name": "eureka"
+   },
+   "created_at": "2026-10-04T10:00:00Z",
+   "qos": "Burstable",
+   "containers": [
+    {
+     "name": "app",
+     "image": "registry.example.com/app:1.0",
+     "image_id": "registry.example.com/app@sha256:1",
+     "ready": true,
+     "restarts": 0,
+     "state": "running",
+     "resources": {
+      "req_cpu_m": 100,
+      "req_mem_bytes": 536870912
+     }
+    }
+   ],
+   "refs": []
+  },
+  {
+   "namespace": "security-agent",
+   "name": "host-shield-ax1y2",
+   "node": "ip-10-0-2-86.compute.internal",
+   "phase": "Running",
+   "ready": true,
+   "service_account": "default",
+   "owner": {
+    "kind": "DaemonSet",
+    "name": "host-shield"
+   },
+   "created_at": "2026-10-04T10:00:00Z",
+   "qos": "Burstable",
+   "containers": [
+    {
+     "name": "app",
+     "image": "registry.example.com/app:1.0",
+     "image_id": "registry.example.com/app@sha256:1",
+     "ready": true,
+     "restarts": 0,
+     "state": "running",
+     "resources": {
+      "req_cpu_m": 300,
+      "req_mem_bytes": 1073741824
+     }
+    }
+   ],
+   "refs": []
+  },
+  {
+   "namespace": "security-agent",
+   "name": "host-shield-bx1y2",
+   "node": "ip-10-0-2-56.compute.internal",
+   "phase": "Running",
+   "ready": true,
+   "service_account": "default",
+   "owner": {
+    "kind": "DaemonSet",
+    "name": "host-shield"
+   },
+   "created_at": "2026-10-04T10:00:00Z",
+   "qos": "Burstable",
+   "containers": [
+    {
+     "name": "app",
+     "image": "registry.example.com/app:1.0",
+     "image_id": "registry.example.com/app@sha256:1",
+     "ready": true,
+     "restarts": 0,
+     "state": "running",
+     "resources": {
+      "req_cpu_m": 300,
+      "req_mem_bytes": 1073741824
+     }
+    }
+   ],
+   "refs": []
+  },
+  {
+   "namespace": "security-agent",
+   "name": "host-shield-cx1y2",
+   "node": "ip-10-0-2-102.compute.internal",
+   "phase": "Running",
+   "ready": true,
+   "service_account": "default",
+   "owner": {
+    "kind": "DaemonSet",
+    "name": "host-shield"
+   },
+   "created_at": "2026-10-04T10:00:00Z",
+   "qos": "Burstable",
+   "containers": [
+    {
+     "name": "app",
+     "image": "registry.example.com/app:1.0",
+     "image_id": "registry.example.com/app@sha256:1",
+     "ready": true,
+     "restarts": 0,
+     "state": "running",
+     "resources": {
+      "req_cpu_m": 300,
+      "req_mem_bytes": 1073741824
+     }
+    }
+   ],
+   "refs": []
+  }
+ ],
+ "nodes": [
+  {
+   "name": "ip-10-0-2-86.compute.internal",
+   "ready": true,
+   "conditions": [
+    {
+     "type": "Ready",
+     "status": "True",
+     "reason": "KubeletReady",
+     "since": "2026-10-04T10:00:00Z"
+    }
+   ],
+   "labels": {
+    "node.kubernetes.io/instance-type": "m5.xlarge",
+    "karpenter.sh/nodepool": "default",
+    "karpenter.sh/capacity-type": "on-demand"
+   },
+   "kubelet_version": "v1.36.0-eks",
+   "os_image": "Amazon Linux 2023",
+   "created_at": "2026-10-04T10:00:00Z",
+   "allocatable": {
+    "cpu_m": 3920,
+    "mem_bytes": 15569256448
+   }
+  },
+  {
+   "name": "ip-10-0-2-56.compute.internal",
+   "ready": true,
+   "conditions": [
+    {
+     "type": "Ready",
+     "status": "True",
+     "reason": "KubeletReady",
+     "since": "2026-10-04T10:00:00Z"
+    }
+   ],
+   "labels": {
+    "node.kubernetes.io/instance-type": "m5.xlarge",
+    "karpenter.sh/nodepool": "default",
+    "karpenter.sh/capacity-type": "on-demand"
+   },
+   "kubelet_version": "v1.36.0-eks",
+   "os_image": "Amazon Linux 2023",
+   "created_at": "2026-10-04T10:00:00Z",
+   "allocatable": {
+    "cpu_m": 3920,
+    "mem_bytes": 15569256448
+   }
+  },
+  {
+   "name": "ip-10-0-2-102.compute.internal",
+   "ready": true,
+   "conditions": [
+    {
+     "type": "Ready",
+     "status": "True",
+     "reason": "KubeletReady",
+     "since": "2026-10-04T10:00:00Z"
+    }
+   ],
+   "labels": {
+    "node.kubernetes.io/instance-type": "m5.xlarge",
+    "karpenter.sh/nodepool": "default",
+    "karpenter.sh/capacity-type": "on-demand"
+   },
+   "kubelet_version": "v1.36.0-eks",
+   "os_image": "Amazon Linux 2023",
+   "created_at": "2026-10-04T10:00:00Z",
+   "allocatable": {
+    "cpu_m": 3920,
+    "mem_bytes": 15569256448
+   }
+  }
+ ],
+ "secrets": [],
+ "configmaps": [],
+ "pvcs": [],
+ "service_accounts": [],
+ "events": [],
+ "workloads": [
+  {
+   "kind": "Deployment",
+   "namespace": "storefront-prod",
+   "name": "web-api",
+   "desired": 2,
+   "ready": 2,
+   "available": 2,
+   "updated": 2,
+   "created_at": "2026-10-04T10:00:00Z"
+  },
+  {
+   "kind": "Deployment",
+   "namespace": "storefront-prod",
+   "name": "web-ui",
+   "desired": 1,
+   "ready": 1,
+   "available": 1,
+   "updated": 1,
+   "created_at": "2026-10-04T10:00:00Z"
+  },
+  {
+   "kind": "StatefulSet",
+   "namespace": "storefront-prod",
+   "name": "eureka",
+   "desired": 3,
+   "ready": 3,
+   "available": 3,
+   "updated": 3,
+   "created_at": "2026-10-04T10:00:00Z"
+  },
+  {
+   "kind": "DaemonSet",
+   "namespace": "security-agent",
+   "name": "host-shield",
+   "desired": 3,
+   "ready": 3,
+   "available": 3,
+   "updated": 3,
+   "created_at": "2026-10-04T10:00:00Z"
+  }
+ ],
+ "hpas": [],
+ "usage": {
+  "nodes": [
+   {
+    "name": "ip-10-0-2-86.compute.internal",
+    "cpu_m": 1592,
+    "mem_bytes": 11752439808
+   },
+   {
+    "name": "ip-10-0-2-56.compute.internal",
+    "cpu_m": 184,
+    "mem_bytes": 7892631552
+   },
+   {
+    "name": "ip-10-0-2-102.compute.internal",
+    "cpu_m": 2932,
+    "mem_bytes": 7475298304
+   }
+  ],
+  "pods": [
+   {
+    "namespace": "storefront-prod",
+    "name": "web-api-5c8e7b6f4d-h7kq2",
+    "containers": [
+     {
+      "name": "app",
+      "cpu_m": 2516,
+      "mem_bytes": 1757413376
+     }
+    ]
+   },
+   {
+    "namespace": "storefront-prod",
+    "name": "web-api-5c8e7b6f4d-m3tvd",
+    "containers": [
+     {
+      "name": "app",
+      "cpu_m": 1203,
+      "mem_bytes": 1725956096
+     }
+    ]
+   },
+   {
+    "namespace": "storefront-prod",
+    "name": "web-ui-7c5d8f9b6-k2m4p",
+    "containers": [
+     {
+      "name": "app",
+      "cpu_m": 15,
+      "mem_bytes": 188743680
+     }
+    ]
+   },
+   {
+    "namespace": "storefront-prod",
+    "name": "eureka-0",
+    "containers": [
+     {
+      "name": "app",
+      "cpu_m": 11,
+      "mem_bytes": 393216000
+     }
+    ]
+   },
+   {
+    "namespace": "storefront-prod",
+    "name": "eureka-1",
+    "containers": [
+     {
+      "name": "app",
+      "cpu_m": 11,
+      "mem_bytes": 393216000
+     }
+    ]
+   },
+   {
+    "namespace": "storefront-prod",
+    "name": "eureka-2",
+    "containers": [
+     {
+      "name": "app",
+      "cpu_m": 11,
+      "mem_bytes": 393216000
+     }
+    ]
+   },
+   {
+    "namespace": "security-agent",
+    "name": "host-shield-ax1y2",
+    "containers": [
+     {
+      "name": "app",
+      "cpu_m": 130,
+      "mem_bytes": 734003200
+     }
+    ]
+   },
+   {
+    "namespace": "security-agent",
+    "name": "host-shield-bx1y2",
+    "containers": [
+     {
+      "name": "app",
+      "cpu_m": 130,
+      "mem_bytes": 734003200
+     }
+    ]
+   },
+   {
+    "namespace": "security-agent",
+    "name": "host-shield-cx1y2",
+    "containers": [
+     {
+      "name": "app",
+      "cpu_m": 130,
+      "mem_bytes": 734003200
+     }
+    ]
+   }
+  ]
+ }
+}

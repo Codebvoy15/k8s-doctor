@@ -96,6 +96,11 @@ type Finding struct {
 	// blocks lists the pods this finding provably takes down. Only these are
 	// used for cause->symptom linking, so correlation never guesses.
 	blocks []ObjectRef
+
+	// contrib lists "<resource>:<ns>/<pod>" keys for pods whose usage beyond
+	// their request is measured. A node saturation finding is linked to the
+	// workload findings that share these keys: proof by arithmetic, not guessing.
+	contrib []string
 }
 
 // Fingerprint builds a stable, short ID from the parts that identify a problem.
@@ -118,6 +123,9 @@ func Registry() []Detector {
 		WorkloadUnavailable{},
 		NodeUnhealthy{},
 		FailedPods{},
+		ResourceRequests{},
+		NodeSaturation{},
+		CPUHotspot{},
 	}
 }
 

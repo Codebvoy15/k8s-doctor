@@ -37,7 +37,7 @@ func run(t *testing.T, name string) Report {
 }
 
 func TestGolden(t *testing.T) {
-	for _, name := range []string{"dynatrace-gap", "secrets-forbidden", "shop-stage", "node-notready", "real-run-apac"} {
+	for _, name := range []string{"dynatrace-gap", "secrets-forbidden", "shop-stage", "node-notready", "real-run-apac", "memory-overcommit", "cpu-hotspot"} {
 		t.Run(name, func(t *testing.T) {
 			got, err := json.MarshalIndent(run(t, name), "", "  ")
 			if err != nil {
@@ -191,13 +191,13 @@ func TestFingerprintsStableAndUnique(t *testing.T) {
 }
 
 func TestMutatingStepsAreMarked(t *testing.T) {
-	for _, name := range []string{"dynatrace-gap", "shop-stage", "node-notready"} {
+	for _, name := range []string{"dynatrace-gap", "shop-stage", "node-notready", "memory-overcommit", "cpu-hotspot"} {
 		for _, f := range run(t, name).Findings {
 			if f.Remediation == nil {
 				continue
 			}
 			for _, s := range f.Remediation.Steps {
-				for _, verb := range []string{"kubectl delete", "kubectl drain", "kubectl uncordon", "kubectl apply", "kubectl patch", "kubectl scale", "rollout undo"} {
+				for _, verb := range []string{"kubectl delete", "kubectl drain", "kubectl uncordon", "kubectl apply", "kubectl patch", "kubectl scale", "rollout undo", "kubectl set resources", "kubectl autoscale", "kubectl edit", "helm upgrade"} {
 					if strings.Contains(s.Command, verb) && !s.Mutating {
 						t.Errorf("%s: step %q runs %q but is not marked mutating", f.Title, s.Description, verb)
 					}
