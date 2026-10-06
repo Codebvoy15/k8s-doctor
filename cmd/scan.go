@@ -24,17 +24,21 @@ var (
 	scanFailOn    string
 	scanMax       int
 	scanTimeout   time.Duration
+	scanExplain   string
 )
 
 var scanCmd = &cobra.Command{
 	Use:   "scan",
 	Short: "Detect problems ranked by impact, with causes linked to symptoms",
 	Long: `Snapshot the cluster once (read-only, secret names only), run every detector,
-and print findings ranked by impact: IMPACTING > DEGRADED > LATENT > INFO.
-Root causes are listed first with the symptoms they explain nested beneath.
+and print a one-screen summary ranked by impact: IMPACTING > DEGRADED > LATENT > INFO.
+Workloads are grouped by namespace (the team that has to act), with where to fix them.
 
-  k8s-doctor scan
-  k8s-doctor scan --context stage-us-east-1 -n shop -v
+  k8s-doctor scan                            # summary tables
+  k8s-doctor scan --explain kafka            # full reasoning, evidence and commands for one item
+  k8s-doctor scan -v                         # every finding in full
+  k8s-doctor scan -o markdown > report.md    # per-namespace report to send to app teams
+  k8s-doctor scan --context stage-us-east-1 -n shop
   k8s-doctor scan -o json > report.json
   k8s-doctor scan --save snap.json          # keep the snapshot (replay it, attach to a ticket, turn it into a test)
   k8s-doctor scan --from snap.json          # offline: no cluster access needed
@@ -67,11 +71,28 @@ Root causes are listed first with the symptoms they explain nested beneath.
 		}
 
 		rep := detect.Run(snap, dets)
-		if outputFmt == "json" {
+		if scanExplain != "" {
+			sub, ok := detect.Explain(rep, scanExplain)
+			if !ok {
+				return fmt.Errorf("--explain %q: no finding about that name (use a workload, node, pod or finding id from the summary)", scanExplain)
+			}
+			rep = sub
+			minTier = detect.TierInfo // an explicit ask shows the item whatever its tier
+		}
+		opts := render.Options{MinTier: minTier, Color: colorOK(), Verbose: verbose, MaxShown: scanMax, Context: resolveContext()}
+		switch {
+		case outputFmt == "json":
 			b, _ := json.MarshalIndent(rep, "", "  ")
 			fmt.Println(string(b))
-		} else {
-			render.Report(os.Stdout, rep, render.Options{MinTier: minTier, Color: colorOK(), Verbose: verbose, MaxShown: scanMax})
+		case outputFmt == "markdown":
+			render.Markdown(os.Stdout, rep, opts)
+		case scanExplain != "":
+			opts.Verbose = true
+			render.Report(os.Stdout, rep, opts)
+		case verbose:
+			render.Report(os.Stdout, rep, opts)
+		default:
+			render.Summary(os.Stdout, rep, opts)
 		}
 		return failOn(scanFailOn, rep.Counts)
 	},
@@ -178,5 +199,6 @@ func init() {
 	scanCmd.Flags().StringVar(&scanFailOn, "fail-on", "", "exit 2 if any finding is at or above this tier")
 	scanCmd.Flags().IntVar(&scanMax, "max", 25, "max findings to print")
 	scanCmd.Flags().DurationVar(&scanTimeout, "timeout", 3*time.Minute, "time budget for collecting the snapshot")
+	scanCmd.Flags().StringVar(&scanExplain, "explain", "", "show one item in full: a workload, node, pod or finding id from the summary")
 	rootCmd.AddCommand(scanCmd, detectorsCmd)
 }

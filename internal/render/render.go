@@ -18,8 +18,9 @@ import (
 type Options struct {
 	MinTier  detect.Tier // hide findings below this tier (default LATENT: hide INFO)
 	Color    bool
-	Verbose  bool // show remediation plans and full affected lists
-	MaxShown int  // findings/patterns to show (default 25)
+	Verbose  bool   // show remediation plans and full affected lists
+	MaxShown int    // findings/patterns to show (default 25)
+	Context  string // kube context, used in the "next" hints of the summary
 }
 
 func (o Options) withDefaults() Options {

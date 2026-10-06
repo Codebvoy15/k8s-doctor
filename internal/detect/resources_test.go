@@ -63,57 +63,95 @@ func TestNoMetricsNoResourceFindings(t *testing.T) {
 	}
 }
 
-// The node at 100% memory with 41% requested is explained by exactly the
-// unrequested CFK pods running on it, and nothing else is blamed.
-func TestMemoryOvercommitAttribution(t *testing.T) {
-	r := run(t, "memory-overcommit")
-	nodes := byDetector(r, "node-saturation")
-	if len(nodes) != 1 {
-		t.Fatalf("want 1 node-saturation finding (only one node is >=85%%), got %d", len(nodes))
-	}
-	n := nodes[0]
-	if n.Tier != TierLatent || !strings.Contains(n.Title, "memory at 100% of allocatable, 41% requested") {
-		t.Errorf("node finding: [%s] %s", n.Tier, n.Title)
-	}
-	causes := map[string]bool{}
-	for _, f := range r.Findings {
-		for _, id := range n.CausedBy {
-			if f.ID == id {
-				causes[f.Subject.Name] = true
+// causesOf returns the subject names of the findings that cause f, sorted.
+func causesOf(r Report, f Finding) string {
+	var got []string
+	for _, c := range r.Findings {
+		for _, id := range f.CausedBy {
+			if c.ID == id {
+				got = append(got, c.Subject.Name)
 			}
 		}
 	}
-	var got []string
-	for c := range causes {
-		got = append(got, c)
-	}
 	sort.Strings(got)
-	want := []string{"dev-connect-1", "kraftcontroller", "ksqldb-cluster-1", "test-connect-1"}
-	if strings.Join(got, ",") != strings.Join(want, ",") {
-		t.Errorf("node caused_by %v, want %v (kafka and controlcenter are on other nodes)", got, want)
+	return strings.Join(got, ",")
+}
+
+// Two hot nodes (as in the first real run), each explained by exactly the pods
+// using unrequested memory on it, and nothing else is blamed.
+func TestMemoryOvercommitAttribution(t *testing.T) {
+	r := run(t, "memory-overcommit")
+	nodes := map[string]Finding{}
+	for _, f := range byDetector(r, "node-saturation") {
+		nodes[f.Subject.Name] = f
 	}
-	// the CDC pod uses 5.3Gi over its request on this node: listed as a
+	if len(nodes) != 2 {
+		t.Fatalf("want 2 node-saturation findings (nodes at 100%% and 85%%), got %d", len(nodes))
+	}
+	a, b := nodes["ip-10-0-1-11.ec2.internal"], nodes["ip-10-0-1-12.ec2.internal"]
+	if a.Tier != TierLatent || !strings.Contains(a.Title, "memory at 100% of allocatable, 41% requested") {
+		t.Errorf("node A: [%s] %s", a.Tier, a.Title)
+	}
+	if got, want := causesOf(r, a), "dev-connect-1,kraftcontroller,ksqldb-cluster-1,test-connect-1"; got != want {
+		t.Errorf("node A caused_by %s, want %s", got, want)
+	}
+	if !strings.Contains(b.Title, "memory at 85% of allocatable, 17% requested") {
+		t.Errorf("node B: %s", b.Title)
+	}
+	if got, want := causesOf(r, b), "controlcenter,ksqldb-cluster-1,platform-prometheus-server"; got != want {
+		t.Errorf("node B caused_by %s, want %s", got, want)
+	}
+	// the CDC pod uses 5.3Gi over its request on node A: listed as a
 	// contributor, but it has a request and stays under 2x, so it is not a cause
-	if !strings.Contains(strings.Join(n.Evidence, "\n"), "orders-cdc/cdc-orders") {
-		t.Error("CDC pod should be listed among the node's contributors")
+	if !strings.Contains(strings.Join(a.Evidence, "\n"), "orders-cdc/cdc-orders") {
+		t.Error("CDC pod should be listed among node A's contributors")
+	}
+	if a.Measures[0].Used != 60472*miB || a.Measures[0].Capacity != 60472*miB {
+		t.Errorf("node A measures: %+v", a.Measures)
 	}
 
-	flagged := map[string]bool{}
+	tier := map[string]Tier{}
 	for _, f := range byDetector(r, "resource-requests") {
-		flagged[f.Subject.Name] = true
-		if f.Tier != TierLatent || !strings.HasSuffix(f.Title, "(BestEffort)") {
-			t.Errorf("[%s] %s", f.Tier, f.Title)
+		tier[f.Subject.Name] = f.Tier
+	}
+	// LATENT: behind a hot node, or a large gap on its own
+	for _, name := range []string{"kafka", "controlcenter", "ksqldb-cluster-1", "dev-connect-1", "test-connect-1", "kraftcontroller", "platform-prometheus-server", "ingest-gateway"} {
+		if tier[name] != TierLatent {
+			t.Errorf("%s: tier %q, want LATENT", name, tier[name])
 		}
 	}
-	for _, name := range []string{"kafka", "controlcenter", "ksqldb-cluster-1", "dev-connect-1", "test-connect-1", "kraftcontroller"} {
-		if !flagged[name] {
-			t.Errorf("%s uses GiBs with no request and was not reported", name)
+	// INFO: ~1-3Gi gaps on a cool node (calibration from the first real run)
+	for _, name := range []string{"schemaregistry", "kafkarestproxy", "ci-runner", "edge-measure", "prometheus-main"} {
+		if tier[name] != TierInfo {
+			t.Errorf("%s: tier %q, want INFO (minor, not behind a hot node)", name, tier[name])
 		}
 	}
-	for _, quiet := range []string{"kafka-exporter", "debug-shell", "cdc-orders", "workorder-api", "nightly-load-29850", "host-shield"} {
-		if flagged[quiet] {
+	for _, quiet := range []string{"kafka-exporter", "debug-shell", "cdc-orders", "workorder-api", "nightly-load-29850", "host-shield", "orders-api"} {
+		if _, ok := tier[quiet]; ok {
 			t.Errorf("%s must not be reported (small, within its request, or a finished Job)", quiet)
 		}
+	}
+}
+
+// Real run: CFK pods were Burstable although their app containers request
+// nothing, because the init container sets requests. Say so; never call them sized.
+func TestNoRequestsBehindBurstableQoS(t *testing.T) {
+	f := findBySubject(run(t, "memory-overcommit"), "resource-requests", "StatefulSet", "kafka")[0]
+	if strings.Contains(f.Title, "BestEffort") {
+		t.Errorf("kafka is Burstable, not BestEffort: %s", f.Title)
+	}
+	if f.Note != "no requests on app containers" {
+		t.Errorf("note = %q", f.Note)
+	}
+	if !strings.Contains(strings.Join(f.Evidence, "\n"), "QoS is Burstable only because an init container sets some") {
+		t.Errorf("evidence should explain the Burstable QoS:\n%s", strings.Join(f.Evidence, "\n"))
+	}
+	if f.FixIn != "Kafka CR kafka" {
+		t.Errorf("fix_in = %q", f.FixIn)
+	}
+	m := f.Measures
+	if len(m) != 1 || m[0].Resource != "memory" || m[0].Used != 24394*miB || m[0].Requested != 0 {
+		t.Errorf("measures: %+v", m)
 	}
 }
 
@@ -260,6 +298,32 @@ func TestSizingHelpers(t *testing.T) {
 	for _, c := range cases {
 		if c.got != c.want {
 			t.Errorf("got %s, want %s", c.got, c.want)
+		}
+	}
+}
+
+func TestExplain(t *testing.T) {
+	r := run(t, "memory-overcommit")
+	if _, ok := Explain(r, "nope"); ok {
+		t.Error("unknown name should not match")
+	}
+	k, ok := Explain(r, "kafka")
+	if !ok || len(k.Findings) != 1 || k.Findings[0].Subject.Name != "kafka" {
+		t.Fatalf("explain kafka: %+v", k.Findings)
+	}
+	// a cause keeps the symptom it explains, so it can print nested
+	cc, _ := Explain(r, "controlcenter")
+	if len(cc.Findings) != 2 || cc.Findings[1].Detector != "node-saturation" {
+		t.Errorf("explain controlcenter should include the node it drives: %d findings", len(cc.Findings))
+	}
+	// by pod name
+	if p, ok := Explain(r, "kafka-2"); !ok || p.Findings[0].Subject.Name != "kafka" {
+		t.Error("a pod name should find its workload's finding")
+	}
+	// the original report is not modified
+	for _, f := range r.Findings {
+		if f.Detector == "node-saturation" && len(f.CausedBy) == 0 {
+			t.Error("Explain must not mutate the input report")
 		}
 	}
 }

@@ -120,6 +120,19 @@ func ownerLine(st model.Workload, known bool) string {
 	return ""
 }
 
+// fixTarget names where a resize must be made, for one table cell.
+func fixTarget(st model.Workload, known bool, w model.OwnerRef) string {
+	if known {
+		if c := st.Controller; c != nil && !isBuiltinController(c.Kind) {
+			return c.Kind + " CR " + c.Name
+		}
+		if st.HelmRelease != "" {
+			return "Helm release " + st.HelmRelease
+		}
+	}
+	return w.Kind
+}
+
 // resizePlan proposes requests/limits and puts the change where it will stick:
 // the operator's custom resource, the Helm values, or the workload itself.
 func resizePlan(ix *model.Index, ns string, w model.OwnerRef, sz sizing) *Plan {

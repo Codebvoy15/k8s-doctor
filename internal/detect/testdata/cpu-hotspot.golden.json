@@ -90,7 +90,16 @@
           "kubectl top pods -n storefront-prod | grep web-api"
         ]
       },
-      "pattern_key": "cpu-hotspot|Deployment|web-api"
+      "pattern_key": "cpu-hotspot|Deployment|web-api",
+      "measures": [
+        {
+          "resource": "cpu",
+          "used": 2516,
+          "requested": 0,
+          "capacity": 3920
+        }
+      ],
+      "note": "no HPA · 2.1x uneven · 64 restarts"
     },
     {
       "id": "a8922d60f5e6",
@@ -140,7 +149,24 @@
           "kubectl get pods -n storefront-prod -o custom-columns=NAME:.metadata.name,QOS:.status.qosClass | grep web-api"
         ]
       },
-      "pattern_key": "resource-requests|memory-none|Deployment|web-api"
+      "pattern_key": "resource-requests|memory-none|Deployment|web-api",
+      "measures": [
+        {
+          "resource": "memory",
+          "used": 1757413376,
+          "requested": 0,
+          "capacity": 15569256448
+        },
+        {
+          "resource": "cpu",
+          "used": 2516,
+          "requested": 0,
+          "capacity": 3920
+        }
+      ],
+      "fix_in": "Deployment",
+      "note": "BestEffort",
+      "proposal": "requests: {cpu: 1900m, memory: 2Gi}, limits: {memory: 2Gi}"
     }
   ]
 }

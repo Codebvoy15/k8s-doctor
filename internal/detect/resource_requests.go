@@ -38,6 +38,7 @@ type rrIssue struct {
 	key  string // none | under
 	used int64  // worst pod's usage
 	req  int64  // that pod's request
+	cap  int64  // that pod's node allocatable (0 if unknown)
 }
 
 func (d ResourceRequests) Detect(ix *model.Index) []Finding {
@@ -61,8 +62,8 @@ func (d ResourceRequests) Detect(ix *model.Index) []Finding {
 	var out []Finding
 	for _, k := range order {
 		g := groups[k]
-		mem := worstGap(g.pods, func(u usagePod) (int64, int64) { return u.mem, u.reqMem }, memSignificant)
-		cpu := worstGap(g.pods, func(u usagePod) (int64, int64) { return u.cpu, u.reqCPU }, cpuSignificant)
+		mem := worstGap(g.pods, func(u usagePod) (int64, int64, int64) { return u.mem, u.reqMem, u.allocMem }, memSignificant)
+		cpu := worstGap(g.pods, func(u usagePod) (int64, int64, int64) { return u.cpu, u.reqCPU, u.allocCPU }, cpuSignificant)
 		if mem == nil && cpu == nil {
 			continue
 		}
@@ -72,11 +73,11 @@ func (d ResourceRequests) Detect(ix *model.Index) []Finding {
 }
 
 // worstGap finds the pod with the largest usage-over-request and classifies it.
-func worstGap(pods []usagePod, get func(usagePod) (used, req int64), significant int64) *rrIssue {
+func worstGap(pods []usagePod, get func(usagePod) (used, req, capacity int64), significant int64) *rrIssue {
 	var best *rrIssue
 	var bestGap int64 = -1
 	for _, u := range pods {
-		used, req := get(u)
+		used, req, capacity := get(u)
 		if used < significant {
 			continue
 		}
@@ -91,7 +92,7 @@ func worstGap(pods []usagePod, get func(usagePod) (used, req int64), significant
 		}
 		if gap := used - req; gap > bestGap {
 			bestGap = gap
-			best = &rrIssue{key: key, used: used, req: req}
+			best = &rrIssue{key: key, used: used, req: req, cap: capacity}
 		}
 	}
 	return best
@@ -145,6 +146,10 @@ func (d ResourceRequests) finding(ix *model.Index, ns string, w model.OwnerRef, 
 	p0 := pods[0]
 	reqLine := fmt.Sprintf("requests per pod: memory %s, cpu %s; memory limit %s; QoS %s", fmtMem(p0.reqMem), fmtCPU(p0.reqCPU), fmtMem(p0.limMem), orDefault(qos, "unknown"))
 	ev = append(ev, reqLine)
+	noRequests := p0.reqMem == 0 && p0.reqCPU == 0
+	if noRequests && qos != "" && qos != "BestEffort" {
+		ev = append(ev, fmt.Sprintf("the app containers set no requests; QoS is %s only because an init container sets some", qos))
+	}
 	sorted := append([]usagePod(nil), pods...)
 	sort.SliceStable(sorted, func(i, j int) bool {
 		gi, gj := sorted[i].mem-sorted[i].reqMem, sorted[j].mem-sorted[j].reqMem
@@ -196,6 +201,20 @@ func (d ResourceRequests) finding(ix *model.Index, ns string, w model.OwnerRef, 
 	if mem != nil {
 		issue = "memory-" + mem.key
 	}
+	var measures []Measure
+	if mem != nil {
+		measures = append(measures, Measure{Resource: "memory", Used: mem.used, Requested: mem.req, Capacity: mem.cap})
+	}
+	if cpu != nil {
+		measures = append(measures, Measure{Resource: "cpu", Used: cpu.used, Requested: cpu.req, Capacity: cpu.cap})
+	}
+	note := ""
+	switch {
+	case qos == "BestEffort":
+		note = "BestEffort"
+	case noRequests:
+		note = "no requests on app containers"
+	}
 	return Finding{
 		ID:          Fingerprint(d.ID(), ix.S.Cluster, ns, w.Kind, w.Name),
 		Tier:        TierLatent,
@@ -206,8 +225,32 @@ func (d ResourceRequests) finding(ix *model.Index, ns string, w model.OwnerRef, 
 		Evidence:    ev,
 		Remediation: resizePlan(ix, ns, w, sz),
 		PatternKey:  "resource-requests|" + issue + "|" + w.Kind + "|" + w.Name,
+		Measures:    measures,
+		FixIn:       fixTarget(st, known, w),
+		Note:        note,
+		Proposal:    sz.yaml(),
 		contrib:     contrib,
+		minor:       isMinor(mem, minorMemGap, 10) && isMinor(cpu, minorCPUGap, 25),
 	}
+}
+
+const (
+	// A gap is minor when it is below this AND below the given percent of the node.
+	minorMemGap = 4 * giB
+	minorCPUGap = 2000
+)
+
+// isMinor: no issue for this resource, or a gap that is small both in absolute
+// terms and relative to the node the pod runs on.
+func isMinor(i *rrIssue, absolute int64, nodePercent int64) bool {
+	if i == nil {
+		return true
+	}
+	gap := i.used - i.req
+	if gap >= absolute {
+		return false
+	}
+	return i.cap <= 0 || gap*100 < i.cap*nodePercent
 }
 
 func cpuKey(i *rrIssue) string {

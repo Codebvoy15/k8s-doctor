@@ -21,7 +21,7 @@
   {
    "namespace": "confluent",
    "name": "kafka-0",
-   "node": "ip-10-0-1-12.ec2.internal",
+   "node": "ip-10-0-1-16.ec2.internal",
    "phase": "Running",
    "ready": true,
    "service_account": "default",
@@ -30,8 +30,22 @@
     "name": "kafka"
    },
    "created_at": "2026-10-04T10:00:00Z",
-   "qos": "BestEffort",
+   "qos": "Burstable",
    "containers": [
+    {
+     "name": "config-init-container",
+     "init": true,
+     "image": "registry.example.com/init:1.0",
+     "image_id": "registry.example.com/init@sha256:1",
+     "ready": false,
+     "restarts": 0,
+     "state": "terminated",
+     "reason": "Completed",
+     "resources": {
+      "req_cpu_m": 100,
+      "req_mem_bytes": 67108864
+     }
+    },
     {
      "name": "app",
      "image": "registry.example.com/app:1.0",
@@ -56,8 +70,22 @@
     "name": "kafka"
    },
    "created_at": "2026-10-04T10:00:00Z",
-   "qos": "BestEffort",
+   "qos": "Burstable",
    "containers": [
+    {
+     "name": "config-init-container",
+     "init": true,
+     "image": "registry.example.com/init:1.0",
+     "image_id": "registry.example.com/init@sha256:1",
+     "ready": false,
+     "restarts": 0,
+     "state": "terminated",
+     "reason": "Completed",
+     "resources": {
+      "req_cpu_m": 100,
+      "req_mem_bytes": 67108864
+     }
+    },
     {
      "name": "app",
      "image": "registry.example.com/app:1.0",
@@ -82,8 +110,22 @@
     "name": "kafka"
    },
    "created_at": "2026-10-04T10:00:00Z",
-   "qos": "BestEffort",
+   "qos": "Burstable",
    "containers": [
+    {
+     "name": "config-init-container",
+     "init": true,
+     "image": "registry.example.com/init:1.0",
+     "image_id": "registry.example.com/init@sha256:1",
+     "ready": false,
+     "restarts": 0,
+     "state": "terminated",
+     "reason": "Completed",
+     "resources": {
+      "req_cpu_m": 100,
+      "req_mem_bytes": 67108864
+     }
+    },
     {
      "name": "app",
      "image": "registry.example.com/app:1.0",
@@ -108,8 +150,22 @@
     "name": "controlcenter"
    },
    "created_at": "2026-10-04T10:00:00Z",
-   "qos": "BestEffort",
+   "qos": "Burstable",
    "containers": [
+    {
+     "name": "config-init-container",
+     "init": true,
+     "image": "registry.example.com/init:1.0",
+     "image_id": "registry.example.com/init@sha256:1",
+     "ready": false,
+     "restarts": 0,
+     "state": "terminated",
+     "reason": "Completed",
+     "resources": {
+      "req_cpu_m": 100,
+      "req_mem_bytes": 67108864
+     }
+    },
     {
      "name": "app",
      "image": "registry.example.com/app:1.0",
@@ -125,7 +181,7 @@
   {
    "namespace": "confluent",
    "name": "ksqldb-cluster-1-0",
-   "node": "ip-10-0-1-15.ec2.internal",
+   "node": "ip-10-0-1-12.ec2.internal",
    "phase": "Running",
    "ready": true,
    "service_account": "default",
@@ -134,8 +190,22 @@
     "name": "ksqldb-cluster-1"
    },
    "created_at": "2026-10-04T10:00:00Z",
-   "qos": "BestEffort",
+   "qos": "Burstable",
    "containers": [
+    {
+     "name": "config-init-container",
+     "init": true,
+     "image": "registry.example.com/init:1.0",
+     "image_id": "registry.example.com/init@sha256:1",
+     "ready": false,
+     "restarts": 0,
+     "state": "terminated",
+     "reason": "Completed",
+     "resources": {
+      "req_cpu_m": 100,
+      "req_mem_bytes": 67108864
+     }
+    },
     {
      "name": "app",
      "image": "registry.example.com/app:1.0",
@@ -160,8 +230,22 @@
     "name": "ksqldb-cluster-1"
    },
    "created_at": "2026-10-04T10:00:00Z",
-   "qos": "BestEffort",
+   "qos": "Burstable",
    "containers": [
+    {
+     "name": "config-init-container",
+     "init": true,
+     "image": "registry.example.com/init:1.0",
+     "image_id": "registry.example.com/init@sha256:1",
+     "ready": false,
+     "restarts": 0,
+     "state": "terminated",
+     "reason": "Completed",
+     "resources": {
+      "req_cpu_m": 100,
+      "req_mem_bytes": 67108864
+     }
+    },
     {
      "name": "app",
      "image": "registry.example.com/app:1.0",
@@ -186,8 +270,22 @@
     "name": "dev-connect-1"
    },
    "created_at": "2026-10-04T10:00:00Z",
-   "qos": "BestEffort",
+   "qos": "Burstable",
    "containers": [
+    {
+     "name": "config-init-container",
+     "init": true,
+     "image": "registry.example.com/init:1.0",
+     "image_id": "registry.example.com/init@sha256:1",
+     "ready": false,
+     "restarts": 0,
+     "state": "terminated",
+     "reason": "Completed",
+     "resources": {
+      "req_cpu_m": 100,
+      "req_mem_bytes": 67108864
+     }
+    },
     {
      "name": "app",
      "image": "registry.example.com/app:1.0",
@@ -212,8 +310,22 @@
     "name": "dev-connect-1"
    },
    "created_at": "2026-10-04T10:00:00Z",
-   "qos": "BestEffort",
+   "qos": "Burstable",
    "containers": [
+    {
+     "name": "config-init-container",
+     "init": true,
+     "image": "registry.example.com/init:1.0",
+     "image_id": "registry.example.com/init@sha256:1",
+     "ready": false,
+     "restarts": 0,
+     "state": "terminated",
+     "reason": "Completed",
+     "resources": {
+      "req_cpu_m": 100,
+      "req_mem_bytes": 67108864
+     }
+    },
     {
      "name": "app",
      "image": "registry.example.com/app:1.0",
@@ -238,8 +350,22 @@
     "name": "test-connect-1"
    },
    "created_at": "2026-10-04T10:00:00Z",
-   "qos": "BestEffort",
+   "qos": "Burstable",
    "containers": [
+    {
+     "name": "config-init-container",
+     "init": true,
+     "image": "registry.example.com/init:1.0",
+     "image_id": "registry.example.com/init@sha256:1",
+     "ready": false,
+     "restarts": 0,
+     "state": "terminated",
+     "reason": "Completed",
+     "resources": {
+      "req_cpu_m": 100,
+      "req_mem_bytes": 67108864
+     }
+    },
     {
      "name": "app",
      "image": "registry.example.com/app:1.0",
@@ -264,8 +390,22 @@
     "name": "test-connect-1"
    },
    "created_at": "2026-10-04T10:00:00Z",
-   "qos": "BestEffort",
+   "qos": "Burstable",
    "containers": [
+    {
+     "name": "config-init-container",
+     "init": true,
+     "image": "registry.example.com/init:1.0",
+     "image_id": "registry.example.com/init@sha256:1",
+     "ready": false,
+     "restarts": 0,
+     "state": "terminated",
+     "reason": "Completed",
+     "resources": {
+      "req_cpu_m": 100,
+      "req_mem_bytes": 67108864
+     }
+    },
     {
      "name": "app",
      "image": "registry.example.com/app:1.0",
@@ -281,7 +421,7 @@
   {
    "namespace": "confluent",
    "name": "kraftcontroller-0",
-   "node": "ip-10-0-1-12.ec2.internal",
+   "node": "ip-10-0-1-16.ec2.internal",
    "phase": "Running",
    "ready": true,
    "service_account": "default",
@@ -290,8 +430,22 @@
     "name": "kraftcontroller"
    },
    "created_at": "2026-10-04T10:00:00Z",
-   "qos": "BestEffort",
+   "qos": "Burstable",
    "containers": [
+    {
+     "name": "config-init-container",
+     "init": true,
+     "image": "registry.example.com/init:1.0",
+     "image_id": "registry.example.com/init@sha256:1",
+     "ready": false,
+     "restarts": 0,
+     "state": "terminated",
+     "reason": "Completed",
+     "resources": {
+      "req_cpu_m": 100,
+      "req_mem_bytes": 67108864
+     }
+    },
     {
      "name": "app",
      "image": "registry.example.com/app:1.0",
@@ -316,8 +470,22 @@
     "name": "kraftcontroller"
    },
    "created_at": "2026-10-04T10:00:00Z",
-   "qos": "BestEffort",
+   "qos": "Burstable",
    "containers": [
+    {
+     "name": "config-init-container",
+     "init": true,
+     "image": "registry.example.com/init:1.0",
+     "image_id": "registry.example.com/init@sha256:1",
+     "ready": false,
+     "restarts": 0,
+     "state": "terminated",
+     "reason": "Completed",
+     "resources": {
+      "req_cpu_m": 100,
+      "req_mem_bytes": 67108864
+     }
+    },
     {
      "name": "app",
      "image": "registry.example.com/app:1.0",
@@ -342,8 +510,142 @@
     "name": "kraftcontroller"
    },
    "created_at": "2026-10-04T10:00:00Z",
-   "qos": "BestEffort",
+   "qos": "Burstable",
    "containers": [
+    {
+     "name": "config-init-container",
+     "init": true,
+     "image": "registry.example.com/init:1.0",
+     "image_id": "registry.example.com/init@sha256:1",
+     "ready": false,
+     "restarts": 0,
+     "state": "terminated",
+     "reason": "Completed",
+     "resources": {
+      "req_cpu_m": 100,
+      "req_mem_bytes": 67108864
+     }
+    },
+    {
+     "name": "app",
+     "image": "registry.example.com/app:1.0",
+     "image_id": "registry.example.com/app@sha256:1",
+     "ready": true,
+     "restarts": 0,
+     "state": "running",
+     "resources": {}
+    }
+   ],
+   "refs": []
+  },
+  {
+   "namespace": "confluent",
+   "name": "schemaregistry-0",
+   "node": "ip-10-0-1-13.ec2.internal",
+   "phase": "Running",
+   "ready": true,
+   "service_account": "default",
+   "owner": {
+    "kind": "StatefulSet",
+    "name": "schemaregistry"
+   },
+   "created_at": "2026-10-04T10:00:00Z",
+   "qos": "Burstable",
+   "containers": [
+    {
+     "name": "config-init-container",
+     "init": true,
+     "image": "registry.example.com/init:1.0",
+     "image_id": "registry.example.com/init@sha256:1",
+     "ready": false,
+     "restarts": 0,
+     "state": "terminated",
+     "reason": "Completed",
+     "resources": {
+      "req_cpu_m": 100,
+      "req_mem_bytes": 67108864
+     }
+    },
+    {
+     "name": "app",
+     "image": "registry.example.com/app:1.0",
+     "image_id": "registry.example.com/app@sha256:1",
+     "ready": true,
+     "restarts": 0,
+     "state": "running",
+     "resources": {}
+    }
+   ],
+   "refs": []
+  },
+  {
+   "namespace": "confluent",
+   "name": "schemaregistry-1",
+   "node": "ip-10-0-1-13.ec2.internal",
+   "phase": "Running",
+   "ready": true,
+   "service_account": "default",
+   "owner": {
+    "kind": "StatefulSet",
+    "name": "schemaregistry"
+   },
+   "created_at": "2026-10-04T10:00:00Z",
+   "qos": "Burstable",
+   "containers": [
+    {
+     "name": "config-init-container",
+     "init": true,
+     "image": "registry.example.com/init:1.0",
+     "image_id": "registry.example.com/init@sha256:1",
+     "ready": false,
+     "restarts": 0,
+     "state": "terminated",
+     "reason": "Completed",
+     "resources": {
+      "req_cpu_m": 100,
+      "req_mem_bytes": 67108864
+     }
+    },
+    {
+     "name": "app",
+     "image": "registry.example.com/app:1.0",
+     "image_id": "registry.example.com/app@sha256:1",
+     "ready": true,
+     "restarts": 0,
+     "state": "running",
+     "resources": {}
+    }
+   ],
+   "refs": []
+  },
+  {
+   "namespace": "confluent",
+   "name": "kafkarestproxy-0",
+   "node": "ip-10-0-1-13.ec2.internal",
+   "phase": "Running",
+   "ready": true,
+   "service_account": "default",
+   "owner": {
+    "kind": "StatefulSet",
+    "name": "kafkarestproxy"
+   },
+   "created_at": "2026-10-04T10:00:00Z",
+   "qos": "Burstable",
+   "containers": [
+    {
+     "name": "config-init-container",
+     "init": true,
+     "image": "registry.example.com/init:1.0",
+     "image_id": "registry.example.com/init@sha256:1",
+     "ready": false,
+     "restarts": 0,
+     "state": "terminated",
+     "reason": "Completed",
+     "resources": {
+      "req_cpu_m": 100,
+      "req_mem_bytes": 67108864
+     }
+    },
     {
      "name": "app",
      "image": "registry.example.com/app:1.0",
@@ -359,7 +661,7 @@
   {
    "namespace": "confluent",
    "name": "kafka-exporter-3e7f1a9b5c-v4hmd",
-   "node": "ip-10-0-1-12.ec2.internal",
+   "node": "ip-10-0-1-13.ec2.internal",
    "phase": "Running",
    "ready": true,
    "service_account": "default",
@@ -594,6 +896,205 @@
    "refs": []
   },
   {
+   "namespace": "kube-system",
+   "name": "platform-prometheus-server-6a1d2c3b4e-r7tqm",
+   "node": "ip-10-0-1-12.ec2.internal",
+   "phase": "Running",
+   "ready": true,
+   "service_account": "default",
+   "owner": {
+    "kind": "ReplicaSet",
+    "name": "platform-prometheus-server-6a1d2c3b4e"
+   },
+   "created_at": "2026-10-04T10:00:00Z",
+   "qos": "BestEffort",
+   "containers": [
+    {
+     "name": "app",
+     "image": "registry.example.com/app:1.0",
+     "image_id": "registry.example.com/app@sha256:1",
+     "ready": true,
+     "restarts": 0,
+     "state": "running",
+     "resources": {}
+    }
+   ],
+   "refs": []
+  },
+  {
+   "namespace": "security-agent",
+   "name": "host-shield-n8vbc",
+   "node": "ip-10-0-1-12.ec2.internal",
+   "phase": "Running",
+   "ready": true,
+   "service_account": "default",
+   "owner": {
+    "kind": "DaemonSet",
+    "name": "host-shield"
+   },
+   "created_at": "2026-10-04T10:00:00Z",
+   "qos": "Burstable",
+   "containers": [
+    {
+     "name": "app",
+     "image": "registry.example.com/app:1.0",
+     "image_id": "registry.example.com/app@sha256:1",
+     "ready": true,
+     "restarts": 0,
+     "state": "running",
+     "resources": {
+      "req_cpu_m": 300,
+      "req_mem_bytes": 314572800
+     }
+    }
+   ],
+   "refs": []
+  },
+  {
+   "namespace": "orders-dev",
+   "name": "orders-api-2b7c9e4f1a-x3kdp",
+   "node": "ip-10-0-1-12.ec2.internal",
+   "phase": "Running",
+   "ready": true,
+   "service_account": "default",
+   "owner": {
+    "kind": "ReplicaSet",
+    "name": "orders-api-2b7c9e4f1a"
+   },
+   "created_at": "2026-10-04T10:00:00Z",
+   "qos": "Burstable",
+   "containers": [
+    {
+     "name": "app",
+     "image": "registry.example.com/app:1.0",
+     "image_id": "registry.example.com/app@sha256:1",
+     "ready": true,
+     "restarts": 0,
+     "state": "running",
+     "resources": {
+      "req_cpu_m": 500,
+      "req_mem_bytes": 10737418240
+     }
+    }
+   ],
+   "refs": []
+  },
+  {
+   "namespace": "ci",
+   "name": "ci-runner-8e4d7a2c6b-g7smb",
+   "node": "ip-10-0-1-13.ec2.internal",
+   "phase": "Running",
+   "ready": true,
+   "service_account": "default",
+   "owner": {
+    "kind": "ReplicaSet",
+    "name": "ci-runner-8e4d7a2c6b"
+   },
+   "created_at": "2026-10-04T10:00:00Z",
+   "qos": "Burstable",
+   "containers": [
+    {
+     "name": "app",
+     "image": "registry.example.com/app:1.0",
+     "image_id": "registry.example.com/app@sha256:1",
+     "ready": true,
+     "restarts": 0,
+     "state": "running",
+     "resources": {
+      "req_cpu_m": 500,
+      "req_mem_bytes": 536870912,
+      "lim_mem_bytes": 2147483648
+     }
+    }
+   ],
+   "refs": []
+  },
+  {
+   "namespace": "edge-dev",
+   "name": "edge-measure-5f5478d9dc-ph6r4",
+   "node": "ip-10-0-1-13.ec2.internal",
+   "phase": "Running",
+   "ready": true,
+   "service_account": "default",
+   "owner": {
+    "kind": "ReplicaSet",
+    "name": "edge-measure-5f5478d9dc"
+   },
+   "created_at": "2026-10-04T10:00:00Z",
+   "qos": "Burstable",
+   "containers": [
+    {
+     "name": "app",
+     "image": "registry.example.com/app:1.0",
+     "image_id": "registry.example.com/app@sha256:1",
+     "ready": true,
+     "restarts": 0,
+     "state": "running",
+     "resources": {
+      "req_mem_bytes": 536870912,
+      "lim_mem_bytes": 6442450944
+     }
+    }
+   ],
+   "refs": []
+  },
+  {
+   "namespace": "monitoring",
+   "name": "prometheus-main-0",
+   "node": "ip-10-0-1-13.ec2.internal",
+   "phase": "Running",
+   "ready": true,
+   "service_account": "default",
+   "owner": {
+    "kind": "StatefulSet",
+    "name": "prometheus-main"
+   },
+   "created_at": "2026-10-04T10:00:00Z",
+   "qos": "BestEffort",
+   "containers": [
+    {
+     "name": "app",
+     "image": "registry.example.com/app:1.0",
+     "image_id": "registry.example.com/app@sha256:1",
+     "ready": true,
+     "restarts": 0,
+     "state": "running",
+     "resources": {}
+    }
+   ],
+   "refs": []
+  },
+  {
+   "namespace": "ingest-dev",
+   "name": "ingest-gateway-5cb8954fdb-h2knv",
+   "node": "ip-10-0-1-15.ec2.internal",
+   "phase": "Running",
+   "ready": true,
+   "service_account": "default",
+   "owner": {
+    "kind": "ReplicaSet",
+    "name": "ingest-gateway-5cb8954fdb"
+   },
+   "created_at": "2026-10-04T10:00:00Z",
+   "qos": "Burstable",
+   "containers": [
+    {
+     "name": "app",
+     "image": "registry.example.com/app:1.0",
+     "image_id": "registry.example.com/app@sha256:1",
+     "ready": true,
+     "restarts": 0,
+     "state": "running",
+     "resources": {
+      "req_cpu_m": 2000,
+      "req_mem_bytes": 4294967296,
+      "lim_mem_bytes": 17179869184
+     }
+    }
+   ],
+   "refs": []
+  },
+  {
    "namespace": "tools",
    "name": "debug-shell",
    "node": "ip-10-0-1-11.ec2.internal",
@@ -726,6 +1227,30 @@
    }
   },
   {
+   "name": "ip-10-0-1-13.ec2.internal",
+   "ready": true,
+   "conditions": [
+    {
+     "type": "Ready",
+     "status": "True",
+     "reason": "KubeletReady",
+     "since": "2026-10-04T10:00:00Z"
+    }
+   ],
+   "labels": {
+    "node.kubernetes.io/instance-type": "m5.4xlarge",
+    "karpenter.sh/nodepool": "default",
+    "karpenter.sh/capacity-type": "on-demand"
+   },
+   "kubelet_version": "v1.36.0-eks",
+   "os_image": "Amazon Linux 2023",
+   "created_at": "2026-10-04T10:00:00Z",
+   "allocatable": {
+    "cpu_m": 15890,
+    "mem_bytes": 63409487872
+   }
+  },
+  {
    "name": "ip-10-0-1-14.ec2.internal",
    "ready": true,
    "conditions": [
@@ -751,6 +1276,30 @@
   },
   {
    "name": "ip-10-0-1-15.ec2.internal",
+   "ready": true,
+   "conditions": [
+    {
+     "type": "Ready",
+     "status": "True",
+     "reason": "KubeletReady",
+     "since": "2026-10-04T10:00:00Z"
+    }
+   ],
+   "labels": {
+    "node.kubernetes.io/instance-type": "m5.4xlarge",
+    "karpenter.sh/nodepool": "default",
+    "karpenter.sh/capacity-type": "on-demand"
+   },
+   "kubelet_version": "v1.36.0-eks",
+   "os_image": "Amazon Linux 2023",
+   "created_at": "2026-10-04T10:00:00Z",
+   "allocatable": {
+    "cpu_m": 15890,
+    "mem_bytes": 63409487872
+   }
+  },
+  {
+   "name": "ip-10-0-1-16.ec2.internal",
    "ready": true,
    "conditions": [
     {
@@ -871,6 +1420,36 @@
    }
   },
   {
+   "kind": "StatefulSet",
+   "namespace": "confluent",
+   "name": "schemaregistry",
+   "desired": 2,
+   "ready": 2,
+   "available": 2,
+   "updated": 2,
+   "created_at": "2026-10-04T10:00:00Z",
+   "controller": {
+    "api_version": "platform.confluent.io/v1beta1",
+    "kind": "SchemaRegistry",
+    "name": "schemaregistry"
+   }
+  },
+  {
+   "kind": "StatefulSet",
+   "namespace": "confluent",
+   "name": "kafkarestproxy",
+   "desired": 1,
+   "ready": 1,
+   "available": 1,
+   "updated": 1,
+   "created_at": "2026-10-04T10:00:00Z",
+   "controller": {
+    "api_version": "platform.confluent.io/v1beta1",
+    "kind": "KafkaRestProxy",
+    "name": "kafkarestproxy"
+   }
+  },
+  {
    "kind": "Deployment",
    "namespace": "confluent",
    "name": "kafka-exporter",
@@ -951,6 +1530,73 @@
    "available": 4,
    "updated": 4,
    "created_at": "2026-10-04T10:00:00Z"
+  },
+  {
+   "kind": "Deployment",
+   "namespace": "kube-system",
+   "name": "platform-prometheus-server",
+   "desired": 1,
+   "ready": 1,
+   "available": 1,
+   "updated": 1,
+   "created_at": "2026-10-04T10:00:00Z",
+   "helm_release": "platform-prometheus",
+   "managed_by": "Helm"
+  },
+  {
+   "kind": "Deployment",
+   "namespace": "orders-dev",
+   "name": "orders-api",
+   "desired": 2,
+   "ready": 2,
+   "available": 2,
+   "updated": 2,
+   "created_at": "2026-10-04T10:00:00Z"
+  },
+  {
+   "kind": "Deployment",
+   "namespace": "ci",
+   "name": "ci-runner",
+   "desired": 1,
+   "ready": 1,
+   "available": 1,
+   "updated": 1,
+   "created_at": "2026-10-04T10:00:00Z"
+  },
+  {
+   "kind": "Deployment",
+   "namespace": "edge-dev",
+   "name": "edge-measure",
+   "desired": 1,
+   "ready": 1,
+   "available": 1,
+   "updated": 1,
+   "created_at": "2026-10-04T10:00:00Z"
+  },
+  {
+   "kind": "StatefulSet",
+   "namespace": "monitoring",
+   "name": "prometheus-main",
+   "desired": 1,
+   "ready": 1,
+   "available": 1,
+   "updated": 1,
+   "created_at": "2026-10-04T10:00:00Z",
+   "controller": {
+    "api_version": "monitoring.coreos.com/v1",
+    "kind": "Prometheus",
+    "name": "main"
+   }
+  },
+  {
+   "kind": "Deployment",
+   "namespace": "ingest-dev",
+   "name": "ingest-gateway",
+   "desired": 1,
+   "ready": 1,
+   "available": 1,
+   "updated": 1,
+   "created_at": "2026-10-04T10:00:00Z"
   }
  ],
  "hpas": [],
@@ -964,7 +1610,12 @@
    {
     "name": "ip-10-0-1-12.ec2.internal",
     "cpu_m": 1663,
-    "mem_bytes": 52439285760
+    "mem_bytes": 54001664000
+   },
+   {
+    "name": "ip-10-0-1-13.ec2.internal",
+    "cpu_m": 667,
+    "mem_bytes": 20113784832
    },
    {
     "name": "ip-10-0-1-14.ec2.internal",
@@ -974,7 +1625,12 @@
    {
     "name": "ip-10-0-1-15.ec2.internal",
     "cpu_m": 1020,
-    "mem_bytes": 52954136576
+    "mem_bytes": 37748736000
+   },
+   {
+    "name": "ip-10-0-1-16.ec2.internal",
+    "cpu_m": 900,
+    "mem_bytes": 27262976000
    }
   ],
   "pods": [
@@ -1123,6 +1779,39 @@
    },
    {
     "namespace": "confluent",
+    "name": "schemaregistry-0",
+    "containers": [
+     {
+      "name": "app",
+      "cpu_m": 6,
+      "mem_bytes": 1825570816
+     }
+    ]
+   },
+   {
+    "namespace": "confluent",
+    "name": "schemaregistry-1",
+    "containers": [
+     {
+      "name": "app",
+      "cpu_m": 8,
+      "mem_bytes": 1717567488
+     }
+    ]
+   },
+   {
+    "namespace": "confluent",
+    "name": "kafkarestproxy-0",
+    "containers": [
+     {
+      "name": "app",
+      "cpu_m": 2,
+      "mem_bytes": 1825570816
+     }
+    ]
+   },
+   {
+    "namespace": "confluent",
     "name": "kafka-exporter-3e7f1a9b5c-v4hmd",
     "containers": [
      {
@@ -1206,6 +1895,83 @@
       "name": "app",
       "cpu_m": 136,
       "mem_bytes": 1258291200
+     }
+    ]
+   },
+   {
+    "namespace": "kube-system",
+    "name": "platform-prometheus-server-6a1d2c3b4e-r7tqm",
+    "containers": [
+     {
+      "name": "app",
+      "cpu_m": 36,
+      "mem_bytes": 2684354560
+     }
+    ]
+   },
+   {
+    "namespace": "security-agent",
+    "name": "host-shield-n8vbc",
+    "containers": [
+     {
+      "name": "app",
+      "cpu_m": 120,
+      "mem_bytes": 1180696576
+     }
+    ]
+   },
+   {
+    "namespace": "orders-dev",
+    "name": "orders-api-2b7c9e4f1a-x3kdp",
+    "containers": [
+     {
+      "name": "app",
+      "cpu_m": 140,
+      "mem_bytes": 6442450944
+     }
+    ]
+   },
+   {
+    "namespace": "ci",
+    "name": "ci-runner-8e4d7a2c6b-g7smb",
+    "containers": [
+     {
+      "name": "app",
+      "cpu_m": 237,
+      "mem_bytes": 1825570816
+     }
+    ]
+   },
+   {
+    "namespace": "edge-dev",
+    "name": "edge-measure-5f5478d9dc-ph6r4",
+    "containers": [
+     {
+      "name": "app",
+      "cpu_m": 27,
+      "mem_bytes": 1932525568
+     }
+    ]
+   },
+   {
+    "namespace": "monitoring",
+    "name": "prometheus-main-0",
+    "containers": [
+     {
+      "name": "app",
+      "cpu_m": 56,
+      "mem_bytes": 2970615808
+     }
+    ]
+   },
+   {
+    "namespace": "ingest-dev",
+    "name": "ingest-gateway-5cb8954fdb-h2knv",
+    "containers": [
+     {
+      "name": "app",
+      "cpu_m": 90,
+      "mem_bytes": 9233760256
      }
     ]
    },

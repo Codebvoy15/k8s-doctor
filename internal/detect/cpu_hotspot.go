@@ -156,6 +156,14 @@ func (d CPUHotspot) finding(ix *model.Index, ns string, w model.OwnerRef, pods [
 	}
 	pl.Verify = []string{fmt.Sprintf("kubectl top pods -n %s | grep %s", ns, w.Name)}
 
+	notes := []string{scalingTitle}
+	if uneven {
+		notes = append(notes, fmt.Sprintf("%.1fx uneven", float64(hot.cpu)/float64(max64(pods[len(pods)-1].cpu, 1))))
+	}
+	if r := totalRestarts(pods); r >= 5 {
+		notes = append(notes, fmt.Sprintf("%d restarts", r))
+	}
+
 	return Finding{
 		ID:          Fingerprint(d.ID(), ix.S.Cluster, ns, w.Kind, w.Name),
 		Tier:        tier,
@@ -166,8 +174,29 @@ func (d CPUHotspot) finding(ix *model.Index, ns string, w model.OwnerRef, pods [
 		Evidence:    ev,
 		Remediation: pl,
 		PatternKey:  "cpu-hotspot|" + w.Kind + "|" + w.Name,
+		Measures:    []Measure{{Resource: "cpu", Used: hot.cpu, Requested: hot.reqCPU, Capacity: hot.allocCPU}},
+		Note:        strings.Join(notes, " · "),
 		contrib:     contrib,
 	}
+}
+
+func max64(a, b int64) int64 {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func totalRestarts(pods []usagePod) int32 {
+	var total int32
+	for _, u := range pods {
+		for _, c := range u.pod.Containers {
+			if !c.Init {
+				total += c.Restarts
+			}
+		}
+	}
+	return total
 }
 
 // restartLine summarizes restarts across replicas, or "" if there are none worth noting.

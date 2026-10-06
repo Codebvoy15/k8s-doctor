@@ -139,6 +139,14 @@ func (d NodeSaturation) finding(ix *model.Index, n model.Node, pods []model.Pod,
 		PatternKey: "node-saturation|" + res,
 		contrib:    contrib,
 	}
+	reqd := requested
+	if !requestsKnown {
+		reqd = -1
+	}
+	f.Measures = []Measure{{Resource: res, Used: used, Requested: reqd, Capacity: alloc}}
+	if bestEffort > 0 && res == "memory" {
+		f.Note = fmt.Sprintf("%d BestEffort pod(s)", bestEffort)
+	}
 	f.Title = fmt.Sprintf("Node %s %s at %d%% of allocatable", n.Name, res, pct(used, alloc))
 	if requestsKnown {
 		f.Title += fmt.Sprintf(", %d%% requested", pct(requested, alloc))

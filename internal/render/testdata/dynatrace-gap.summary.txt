@@ -1,0 +1,9 @@
+k8s-doctor scan  stage-us-east-1  ns=all  2026-09-29 06:00 UTC
+2 latent
+
+FINDINGS
+  LATENT     Missing Secret servicenow/k8s-informer-repo-cred referenced by 1 pod(s)
+  LATENT     Secret "dynatrace-bootstrapper-config" missing where pods reference it  (x3 namespaces)
+
+details:  k8s-doctor scan --context my-ctx --explain k8s-informer-repo-cred
+report:   k8s-doctor scan --context my-ctx -o markdown > report.md

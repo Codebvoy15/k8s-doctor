@@ -1,6 +1,6 @@
 # k8s-doctor: fleet detection engine
 
-Status: Phase 1 implemented (`scan`, `fleet`), v3.6 calibrated on the first real fleet run; v3.7 adds resource-pressure attribution · Last updated: 2026-10-06
+Status: Phase 1 implemented (`scan`, `fleet`), v3.6 calibrated on the first real fleet run; v3.7 adds resource-pressure attribution; v3.7.1 summary output · Last updated: 2026-10-06
 
 ## Problem
 
@@ -130,6 +130,22 @@ finding only when one of that workload's pods is on the node and its measured
 usage beyond its request, **for the same resource**, is listed. A memory-only
 finding is never linked to a CPU-saturated node.
 
+### Output (`internal/render`)
+Answer first, grouped by who has to act, details on demand:
+
+- `scan` (default): one screen. A verdict line, then tables: findings
+  (availability/config, symptoms nested), nodes under pressure (once each, with
+  their causes), workloads to resize grouped by namespace with **where to fix
+  them**, CPU hotspots. Lower tiers are counted, not printed.
+- `--explain <workload|node|pod|id>`: one item in full, with the symptoms it
+  explains (or, for a symptom, its causes named).
+- `-v`: every finding in full (the pre-v3.7.1 output). `-o markdown`: the same
+  sections as a per-namespace report for app teams, with the change per
+  workload. `-o json`: everything, including structured `measures`, `fix_in`,
+  `note` and `proposal`, so automation never parses titles.
+- Columns are aligned by visible width (ANSI-safe); a golden test per fixture
+  catches unintended layout changes.
+
 ### Fleet (`internal/fleet`)
 Bounded parallelism (default 8), a per-cluster timeout (default 2m),
 contexts honored for cancellation, panics contained per cluster, stable
@@ -170,6 +186,7 @@ patterns (occurring 2+ times), sorted by worst tier, then breadth.
 | 2026-09-29 | 915-restart OOM loop reported as "recent OOMKills, down since 2m" | Chronic restart detection (restarts ≥ 10) on Ready pods | `TestChronicOOMIsCalledChronic` |
 | 2026-09-29 | A single-cluster IMPACTING finding was hidden in the fleet view | "Needs attention" list of root causes not covered by patterns | `TestFleetShowsSingleClusterImpacting` |
 | 2026-10-06 | Weekly review: 26 high-memory alerts on a dev cluster; a node at 100% memory had 41% requested. Root cause found by hand: a Kafka platform (CFK) deployed with no requests/limits | `resource-requests` + `node-saturation` with operator-aware fixes and node attribution | `TestMemoryOvercommitAttribution`, `TestResizeGoesWhereItSticks` |
+| 2026-10-06 | First real run of v3.7 (dev data platform): 17 findings, ~400 lines; one node's details printed under each of its 4 causes; ~1.2Gi gaps on 59Gi nodes listed next to 24Gi ones; CFK pods are Burstable (init container requests) while their app containers request nothing | Summary tables as the default output, `--explain`, `-o markdown`; resource gaps under 4Gi and 10% of the node that drive no hot node are INFO; "no requests on app containers" note; second hot node in the fixture | `TestSummaryIsOneScreen`, `TestNoRequestsBehindBurstableQoS`, `TestMemoryOvercommitAttribution` |
 | 2026-10-06 | Weekly review: 75 intermittent high-CPU alerts on a prod cluster; one API replica used 2.5 of 4 cores, no requests, no HPA, 2x replica imbalance | `cpu-hotspot` with HPA/imbalance/restart context; CPU sizing from the replica mean | `TestCPUHotspotScalingContext` |
 
 Every false positive or understated finding from a real run becomes a row here and a test.

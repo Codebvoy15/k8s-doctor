@@ -93,6 +93,12 @@ type Finding struct {
 	CausedBy   []string `json:"caused_by,omitempty"` // IDs of findings that explain this one
 	Explains   []string `json:"explains,omitempty"`  // IDs of findings this one explains
 
+	// Structured facts for tables and automation, so nothing parses titles.
+	Measures []Measure `json:"measures,omitempty"`
+	FixIn    string    `json:"fix_in,omitempty"`   // where the fix must be made: "Kafka CR kafka", "Helm release x", "Deployment"
+	Note     string    `json:"note,omitempty"`     // short qualifier for one table cell: "no HPA · 2.1x uneven"
+	Proposal string    `json:"proposal,omitempty"` // proposed sizing, e.g. "requests: {memory: 29440Mi}, limits: {memory: 29440Mi}"
+
 	// blocks lists the pods this finding provably takes down. Only these are
 	// used for cause->symptom linking, so correlation never guesses.
 	blocks []ObjectRef
@@ -101,6 +107,30 @@ type Finding struct {
 	// their request is measured. A node saturation finding is linked to the
 	// workload findings that share these keys: proof by arithmetic, not guessing.
 	contrib []string
+
+	// minor: a resource gap too small to matter on its own. It is demoted to
+	// INFO unless correlation shows it behind a saturated node.
+	minor bool
+}
+
+// Measure is one resource reading: memory in bytes, CPU in millicores.
+// Requested is -1 when requests were not recorded.
+type Measure struct {
+	Resource  string `json:"resource"` // memory | cpu
+	Used      int64  `json:"used"`
+	Requested int64  `json:"requested"`
+	Capacity  int64  `json:"capacity,omitempty"` // node allocatable, when relevant
+}
+
+// FormatQuantity renders a Measure value: "23.8Gi", "512Mi", "2.5 cores", "851m", "none".
+func FormatQuantity(resource string, v int64) string {
+	if v < 0 {
+		return "?"
+	}
+	if resource == "cpu" {
+		return fmtCPU(v)
+	}
+	return fmtMem(v)
 }
 
 // Fingerprint builds a stable, short ID from the parts that identify a problem.
@@ -188,11 +218,24 @@ func Run(s *model.Snapshot, dets []Detector) Report {
 		}
 	}
 	correlate(r.Findings)
+	demoteMinor(r.Findings)
 	sortFindings(r.Findings)
 	for _, f := range r.Findings {
 		r.Counts[f.Tier]++
 	}
 	return r
+}
+
+// demoteMinor moves small resource gaps that explain nothing to INFO. Learned
+// from the first real run (2026-10-06): 17 findings, of which a handful of
+// ~1Gi gaps on 59Gi nodes buried the ones driving the alerts.
+func demoteMinor(fs []Finding) {
+	for i := range fs {
+		if fs[i].minor && len(fs[i].Explains) == 0 && fs[i].Tier == TierLatent {
+			fs[i].Tier = TierInfo
+			fs[i].Evidence = append(fs[i].Evidence, "minor: the gap is small for its node and it is not behind any saturated node")
+		}
+	}
 }
 
 func sortFindings(fs []Finding) {

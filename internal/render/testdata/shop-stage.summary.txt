@@ -1,0 +1,10 @@
+k8s-doctor scan  stage-us-east-1  ns=all  2026-09-29 06:00 UTC
+2 impacting
+
+FINDINGS
+  IMPACTING  Missing Secret shop-stage/shop-registry-cred referenced by 1 pod(s)
+             └ causes StatefulSet shop-stage/elasticsearch1: 0/1 ready (ImagePull)
+  IMPACTING  Deployment shop-stage/web: 0/1 ready (ReadinessProbe)
+
+details:  k8s-doctor scan --context my-ctx --explain shop-registry-cred
+report:   k8s-doctor scan --context my-ctx -o markdown > report.md

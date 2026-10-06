@@ -1,0 +1,13 @@
+k8s-doctor scan  prod-api-apac  ns=all  2026-10-06 07:45 UTC
+1 workload to resize  ·  1 CPU hotspot
+
+WORKLOADS USING MORE THAN THEY REQUEST
+  NAMESPACE        WORKLOAD  USES               REQUESTS     FIX IN      NOTE
+  storefront-prod  web-api   1.6Gi + 2.5 cores  none + none  Deployment  BestEffort
+
+CPU HOTSPOTS
+  NAMESPACE        WORKLOAD  BUSIEST REPLICA  OF ITS NODE  REQUEST  SCALING
+  storefront-prod  web-api   2.5 cores        64%          none     no HPA · 2.1x uneven · 64 restarts
+
+details:  k8s-doctor scan --context my-ctx --explain web-api
+report:   k8s-doctor scan --context my-ctx -o markdown > report.md

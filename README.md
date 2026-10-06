@@ -26,15 +26,35 @@ restart/reschedule) > **INFO**. See [DESIGN.md](DESIGN.md).
 ### New in v3.7: why are the CPU/memory alerts firing?
 
 ```bash
-# only the resource detectors, with the fix for each workload
-./k8s-doctor scan --context <ctx> --detectors resource-requests,node-saturation,cpu-hotspot -v
+./k8s-doctor scan --context <ctx>                       # one-screen summary (default)
+./k8s-doctor scan --context <ctx> --explain kafka       # one item in full: evidence, reasoning, commands
+./k8s-doctor scan --context <ctx> -o markdown > r.md    # per-namespace report to send to app teams
+./k8s-doctor scan --context <ctx> -v                    # every finding in full
+./k8s-doctor scan --context <ctx> --min-tier info       # include minor findings
+```
+
+The summary answers first, then groups by who has to act:
+
+```
+k8s-doctor scan  dev-data-platform  ns=all  2026-10-06 07:45 UTC
+2 nodes ≥85% memory  ·  8 workloads to resize  ·  1 degraded
+
+NODES UNDER PRESSURE
+  NODE          RESOURCE  USED           REQUESTED     CAUSED BY
+  ip-10-0-1-11  memory    59.1Gi (100%)  24.5Gi (41%)  ksqldb-cluster-1, dev-connect-1, test-connect-1, kraftcontroller
+
+WORKLOADS USING MORE THAN THEY REQUEST
+  NAMESPACE    WORKLOAD          USES    REQUESTS  FIX IN                      NOTE
+  confluent    ksqldb-cluster-1  14.6Gi  none      KsqlDB CR ksqldb-cluster-1  drives ip-10-0-1-11, ip-10-0-1-12
+               kafka             23.8Gi  none      Kafka CR kafka              no requests on app containers
 ```
 
 - **resource-requests**: workloads using far more memory/CPU than they request,
-  or requesting none (BestEffort). The fix goes where it sticks: the operator's
-  CR (e.g. CFK `spec.podTemplate.resources`), the Helm values, or the workload.
-- **node-saturation**: nodes at >=85% of allocatable, with how much of the usage
-  is unrequested and which pods use it; linked to the workloads that cause it.
+  or requesting none. The fix goes where it sticks: the operator's CR (e.g. CFK
+  `spec.podTemplate.resources`), the Helm values, or the workload. Small gaps
+  that drive no hot node are INFO (hidden by default).
+- **node-saturation**: nodes at >=85% of allocatable, with used vs requested
+  and the workloads causing it.
 - **cpu-hotspot**: one replica taking most of a node's CPU, with HPA state,
   replica imbalance and restarts.
 
