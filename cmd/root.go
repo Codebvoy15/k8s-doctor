@@ -53,7 +53,7 @@ Examples:
 		}
 		diag.Kubeconfig = kubeconfigPath
 		// New engine commands resolve their own context and never touch the kubeconfig.
-		if cmd.Name() == "scan" || cmd.Name() == "fleet" {
+		if cmd.Name() == "scan" || cmd.Name() == "fleet" || cmd.Name() == "post-upgrade" {
 			return nil
 		}
 		// --context: per-invocation cluster selection, no kubeconfig mutation (safe for scripts and parallel runs)

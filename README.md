@@ -2,6 +2,32 @@
 
 SRE-grade Kubernetes troubleshooting CLI. Zero config. Drop binary, run it.
 
+## New in v3.8: `post-upgrade` — did the EKS upgrade actually finish?
+
+```bash
+./k8s-doctor post-upgrade                                        # current context
+./k8s-doctor post-upgrade atp-mdmhub-sbx-amer rd-bcg-sbx-01      # bare EKS names match context ARNs
+./k8s-doctor post-upgrade --contexts-file sbx.txt --parallel 10
+./k8s-doctor post-upgrade --match sbx -o markdown > upgrade.md   # status report for the ticket
+./k8s-doctor post-upgrade --match sbx --fail-on fail             # exit 2 if anything failed (CI)
+./k8s-doctor post-upgrade --save-dir ./facts ...                 # keep raw facts; replay with --from
+```
+
+Read-only, kubeconfig never modified. Checks, each with **why** / **evidence** / **fix** when not a PASS:
+
+| Check | What it verifies | Reasoning when it fails |
+|---|---|---|
+| Control plane | on `--target` (default 1.36) | — |
+| Node versions | every kubelet on the control plane's minor | grouped by nodegroup / NodePool: MNG never rolled by a CP upgrade; Karpenter EC2NodeClass still resolving old AMIs (pinned alias, ids/tags, controller too old for `@latest`); drift blocked by NodePool budget, do-not-disrupt pods/nodes or PDBs at 0; nodes with no NodeClaim; Fargate pods not recreated; self-managed ASG on an old AMI; skew inside/outside policy |
+| Node health | NotReady / leftover cordoned nodes | stuck drains, PDB blockers |
+| kube-proxy | latest EKS add-on build for the target, minor = control plane | EKS add-on vs self-managed fix path |
+| CoreDNS | latest EKS add-on build, rollout finished | Preserve for custom Corefiles |
+| VPC CNI | latest build, `aws-vpc-cni-init` = `aws-node` | init container left behind by image-only patches |
+| kube-system pods | nothing unready or crash-looping | |
+
+Add-on targets come from a built-in table (AWS EKS docs, dated in the output); when AWS ships a newer build,
+pass `--kube-proxy`, `--coredns` or `--vpc-cni`. Anything RBAC hides is reported as SKIP, never as a pass.
+
 ## New in v3.5: detection engine (`scan`, `fleet`)
 
 ```bash
